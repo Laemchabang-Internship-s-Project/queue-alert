@@ -37,6 +37,96 @@ def build_payload(row):
     }
 
 
+def build_welcome_payload(row, header="ยินดีต้อนรับ", text="ยินดีต้อนรับสู่โรงพยาบาล", title="ยินดีต้อนรับ"):
+    name = " ".join(
+        str(x).strip()
+        for x in [
+            row.get("pname"),
+            row.get("fname"),
+            row.get("lname")
+        ]
+        if x
+    )
+
+    return {
+        "cid": str(row["cid"]) if row.get("cid") else "",
+        "name": name,
+        "template": "ยินดีต้อนรับ",
+        "header": header,
+        "Text": text,
+        "message_title": title,
+        "message_html": f"<div><strong>{text} คุณ {name}</strong></div>",
+        "message_text": title,
+        "message_type": "HPT"
+    }
+
+
+def build_queue_with_url_payload(row, url, header="แจ้งเตือนคิว", text="เช็คสถานะคิวของคุณ", title="แจ้งเตือนคิว"):
+    name = " ".join(
+        str(x).strip()
+        for x in [
+            row.get("pname"),
+            row.get("fname"),
+            row.get("lname")
+        ]
+        if x
+    )
+
+    queue_no = str(row["qnumber"])
+    category = row.get("category_name") or ""
+    room = row.get("room_code") or ""
+    service = f"{category} ห้อง {room}".strip()
+
+    return {
+        "cid": str(row["cid"]) if row.get("cid") else "",
+        "name": name,
+        "template": "แจ้งเตือนคิว",
+        "header": header,
+        "queue_no": queue_no,
+        "hn_no": str(row["hn"]),
+        "service": service,
+        "url": url,
+        "text": text,
+        "message_title": title,
+        "message_html": f"<div><strong>คิวที่ {queue_no} บริการ {service}</strong><br><a href='{url}'>คลิกเพื่อตรวจสอบคิว</a></div>",
+        "message_text": title,
+        "message_type": "HPT"
+    }
+
+
+def build_almost_turn_payload(row, queue_waiting, url, header="ใกล้ถึงคิวของคุณแล้ว", text="ใกล้ถึงคิวของคุณแล้ว", title="ใกล้ถึงคิวของคุณแล้ว"):
+    name = " ".join(
+        str(x).strip()
+        for x in [
+            row.get("pname"),
+            row.get("fname"),
+            row.get("lname")
+        ]
+        if x
+    )
+
+    queue_no = str(row["qnumber"])
+    category = row.get("category_name") or ""
+    room = row.get("room_code") or ""
+    service = f"{category} ห้อง {room}".strip()
+
+    return {
+        "cid": str(row["cid"]) if row.get("cid") else "",
+        "name": name,
+        "template": "ใกล้ถึงคิวของคุณแล้ว",
+        "header": header,
+        "queue_no": queue_no,
+        "queue_waiting": str(queue_waiting),
+        "hn_no": str(row["hn"]),
+        "service": service,
+        "url": url,
+        "text": text,
+        "message_title": title,
+        "message_html": f"<div><strong>คิวที่ {queue_no} บริการ {service}</strong><br>รออีก {queue_waiting} คิว<br><a href='{url}'>คลิกเพื่อตรวจสอบคิว</a></div>",
+        "message_text": title,
+        "message_type": "HPT"
+    }
+
 async def send_to_moph(payload):
     """
     ยิง MOPH API และตรวจสอบทั้ง HTTP Status Code และ JSON Response Body
