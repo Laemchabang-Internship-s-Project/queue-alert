@@ -212,12 +212,13 @@ async def get_pending_queues_from_postgres():
         return [dict(r) for r in rows]
 
 
-async def get_almost_turn_queues_from_postgres(threshold: int = 2):
+async def get_almost_turn_queues_from_postgres(target_waiting: int = 2):
     """
-    ดึงรายการคิวที่ใกล้ถึงคิว (queue_waiting <= threshold)
-    ที่ยังไม่เคยส่งแจ้งเตือนประเภท almost_turn หรือเคยส่งล้มเหลวแต่ยัง Retry ได้
+    ดึงรายการคิวที่ใกล้ถึงคิวในระดับ target_waiting (เช่น target_waiting = 2 หรือ target_waiting = 1)
+    ที่ยังไม่เคยส่งแจ้งเตือนประเภท almost_turn_{target_waiting} หรือเคยส่งล้มเหลวแต่ยัง Retry ได้
     """
     pool = await get_pool()
+    notif_type = f"almost_turn_{target_waiting}"
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             WITH queue_positions AS (
@@ -244,15 +245,16 @@ async def get_almost_turn_queues_from_postgres(threshold: int = 2):
                 COALESCE(l.max_retries, 3) AS max_retries
             FROM queue_positions q
             LEFT JOIN notification_log l
-                   ON q.vn = l.vn AND l.notification_type = 'almost_turn'
-            WHERE q.queue_waiting <= $1
+                   ON q.vn = l.vn AND l.notification_type = $2
+            WHERE q.queue_waiting = $1
               AND (
                   l.vn IS NULL
                   OR (l.status = 'FAILED' AND l.attempt_count < l.max_retries AND l.is_permanent_error = FALSE)
               )
             ORDER BY q.queue_waiting ASC, q.time ASC;
-        """, threshold)
+        """, target_waiting, notif_type)
         return [dict(r) for r in rows]
+
 
 
 async def get_welcome_queues_from_postgres():

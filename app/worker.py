@@ -66,7 +66,7 @@ async def process_queue_row(row, notification_type: str = "queue_created"):
     # 2. สร้าง MOPH JSON Payload ตามประเภทการแจ้งเตือน
     if notification_type == "welcome":
         payload = build_welcome_payload(row)
-    elif notification_type == "almost_turn":
+    elif notification_type.startswith("almost_turn"):
         queue_waiting = row.get("queue_waiting", 0)
         payload = build_almost_turn_payload(
             row=row,
@@ -159,14 +159,15 @@ async def queue_worker():
                 for row in created_rows:
                     await process_queue_row(row, notification_type="queue_created")
 
-            # Phase B2: ประมวลผลแจ้งเตือนใกล้ถึงคิว (almost_turn)
-            almost_rows = await get_almost_turn_queues_from_postgres(
-                threshold=settings.almost_turn_threshold
-            )
-            if almost_rows:
-                logger.info("Processing %d pending/retry 'almost_turn' notifications", len(almost_rows))
-                for row in almost_rows:
-                    await process_queue_row(row, notification_type="almost_turn")
+            # Phase B2: ประมวลผลแจ้งเตือนใกล้ถึงคิว (almost_turn: ส่งทั้งตอนเหลือ 2 คิว และ 1 คิว)
+            for target_waiting in [2, 1]:
+                almost_rows = await get_almost_turn_queues_from_postgres(
+                    target_waiting=target_waiting
+                )
+                if almost_rows:
+                    logger.info("Processing %d pending/retry 'almost_turn_%d' notifications", len(almost_rows), target_waiting)
+                    for row in almost_rows:
+                        await process_queue_row(row, notification_type=f"almost_turn_{target_waiting}")
 
             # Phase B3: ประมวลผลแจ้งเตือนเปลี่ยนแปลงคิว (queue_changed)
             changed_rows = await get_changed_queues_from_postgres()
