@@ -75,7 +75,7 @@ def build_queue_with_url_payload(
         if x
     )
 
-    queue_no = str(row["qnumber"])
+    queue_no = build_queue_display(row)
     category = row.get("category_name") or ""
     room = row.get("room_name") or row.get("room_code") or ""
     service = f"{category} ห้อง {room}".strip()
@@ -111,7 +111,7 @@ def build_almost_turn_payload(
         if x
     )
 
-    queue_no = str(row["qnumber"])
+    queue_no = build_queue_display(row)
     category = row.get("category_name") or ""
     room = row.get("room_name") or row.get("room_code") or ""
     service = f"{category} ห้อง {room}".strip()
@@ -133,6 +133,71 @@ def build_almost_turn_payload(
         "message_type": "HPT",
     }
 
+def build_queue_changed_payload(row, queue_waiting, header="คิวของท่านมีการเปลี่ยนแปลง", text="คิวของท่านมีการเปลี่ยนแปลง", title="คิวของท่านมีการเปลี่ยนแปลง"):
+    name = " ".join(
+        str(x).strip()
+        for x in [
+            row.get("pname"),
+            row.get("fname"),
+            row.get("lname")
+        ]
+        if x
+    )
+
+    queue_no = build_queue_display(row)
+    category = row.get("category_name") or ""
+    room = row.get("room_name") or row.get("room_code") or ""
+    service = f"{category} ห้อง {room}".strip()
+
+    return {
+        "cid": str(row["cid"]) if row.get("cid") else "",
+        "name": name,
+        "template": "คิวของท่านมีการเปลี่ยนแปลง",
+        "header": header,
+        "queue_no": queue_no,
+        "queue_waiting": str(queue_waiting),
+        "hn_no": str(row["hn"]),
+        "service": service,
+        "url": "",
+        "text": text,
+        "message_title": title,
+        "message_html": f"<div><strong>คิวที่ {queue_no} บริการ {service}</strong><br>รออีก {queue_waiting} คิว</div>",
+        "message_text": title,
+        "message_type": "HPT"
+    }
+
+def build_queue_changed_with_url_payload(row, queue_waiting, url, header="คิวของท่านมีการเปลี่ยนแปลง", text="คิวของท่านมีการเปลี่ยนแปลง", title="คิวของท่านมีการเปลี่ยนแปลง"):
+    name = " ".join(
+        str(x).strip()
+        for x in [
+            row.get("pname"),
+            row.get("fname"),
+            row.get("lname")
+        ]
+        if x
+    )
+
+    queue_no = build_queue_display(row)
+    category = row.get("category_name") or ""
+    room = row.get("room_name") or row.get("room_code") or ""
+    service = f"{category} ห้อง {room}".strip()
+
+    return {
+        "cid": str(row["cid"]) if row.get("cid") else "",
+        "name": name,
+        "template": "คิวของท่านมีการเปลี่ยนแปลง",
+        "header": header,
+        "queue_no": queue_no,
+        "queue_waiting": str(queue_waiting),
+        "hn_no": str(row["hn"]),
+        "service": service,
+        "url": url,
+        "text": text,
+        "message_title": title,
+        "message_html": f"<div><strong>คิวที่ {queue_no} บริการ {service}</strong><br>รออีก {queue_waiting} คิว<br><a href='{url}'>คลิกเพื่อตรวจสอบคิว</a></div>",
+        "message_text": title,
+        "message_type": "HPT"
+    }
 
 async def send_to_moph(payload):
     """
