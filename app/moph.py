@@ -1,5 +1,8 @@
+import logging
 import httpx
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def build_payload(row):
@@ -19,7 +22,7 @@ def build_payload(row):
     service = f"{category} ห้อง {room}".strip()
 
     return {
-        "cid": str(row["cid"]),
+        "cid": str(row["cid"]) if row.get("cid") else "",
         "name": name,
         "template": "แจ้งเตือนคิว",
         "header": "แจ้งเตือนคิว",
@@ -35,6 +38,10 @@ def build_payload(row):
 
 
 async def send_to_moph(payload):
+    """
+    ยิง MOPH API และตรวจสอบทั้ง HTTP Status Code และ JSON Response Body
+    คืนค่า (is_success, is_permanent_error, http_status_code, moph_code, response_text)
+    """
     headers = {
         "Authorization": f"Bearer {settings.moph_access_token}",
         "client-key": settings.moph_client_key,
@@ -42,16 +49,63 @@ async def send_to_moph(payload):
         "Content-Type": "application/json"
     }
 
-    async with httpx.AsyncClient(
-        timeout=settings.request_timeout_seconds
-    ) as client:
-        response = await client.post(
-            settings.moph_url,
-            json=payload,
-            headers=headers
-        )
-        return (
-            response.status_code,
-            response.text,
-            response.is_success
-        )
+    try:
+        async with httpx.AsyncClient(
+            timeout=settings.request_timeout_seconds
+        ) as client:
+            response = await client.post(
+                settings.moph_url,
+                json=payload,
+                headers=headers
+            )
+
+            http_status = response.status_code
+            response_text = response.text
+            moph_code = None
+            is_success = False
+            is_permanent_error = False
+
+            # ลอง parse JSON body เพื่อเช็ค message_code ของ MOPH
+            try:
+                res_json = response.json()
+                if isinstance(res_json, dict):
+                    moph_code = str(
+                        res_json.get("message_code")
+                        or res_json.get("code")
+                        or res_json.get("status")
+                        or ""
+                    )
+            except Exception:
+                res_json = {}
+
+            # เงื่อนไขการตัดสิน Success / Permanent Error:
+            # MOPH API บางครั้งส่ง HTTP 200 แต่ใน Body คืน message_code = 401 หรือ credential incorrect
+            if response.is_success:
+                # ถ้า HTTP 200/2xx และ message_code บ่งบอกว่าสำเร็จ (200, 0, SUCCESS)
+                if moph_code in ["200", "0", "SUCCESS", ""] and res_json.get("message_code") != 401:
+                    is_success = True
+                else:
+                    # HTTP 200 แต่ MOPH Body บอกว่า Error (เช่น 401 Unauthorized / Invalid Client Key)
+                    is_success = False
+                    if moph_code in ["401", "403", "400"] or "incorrect" in response_text.lower():
+                        is_permanent_error = True
+            else:
+                # HTTP Status 4xx (Client Error เช่น Auth พลาด, Bad Request) = Permanent Error (ไม่ต้อง retry)
+                if 400 <= http_status < 500:
+                    is_permanent_error = True
+                # HTTP Status 5xx (Server Error/Gateway Timeout) = Transient Error (ทำ retry ได้)
+
+            return (
+                is_success,
+                is_permanent_error,
+                http_status,
+                moph_code,
+                response_text
+            )
+
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as exc:
+        # Network errors = Transient errors (สามารถ Retry ได้)
+        return False, False, None, "NETWORK_ERROR", str(exc)
+    except Exception as exc:
+        logger.exception("Unexpected error sending to MOPH")
+        return False, True, None, "UNKNOWN_ERROR", str(exc)
