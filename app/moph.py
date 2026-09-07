@@ -5,6 +5,34 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def get_name(row):
+    if row.get("name"):
+        return str(row["name"]).strip()
+    return " ".join(
+        str(x).strip()
+        for x in [row.get("pname"), row.get("fname"), row.get("lname")]
+        if x
+    )
+
+
+def get_queue_no(row):
+    if row.get("queue_no"):
+        return str(row["queue_no"]).strip()
+    return build_queue_display(row)
+
+
+def get_service(row):
+    if row.get("service"):
+        return str(row["service"]).strip()
+    category = row.get("category_name") or ""
+    room = row.get("room_name") or row.get("room_code") or ""
+    return f"{category} ห้อง {room}".strip()
+
+
+def get_hn(row):
+    return str(row.get("hn_no") or row.get("hn") or "")
+
+
 def build_queue_display(row):
     """
     รวม category_name + qnumber เป็นเลขคิวแสดงผล เช่น 'หมอพร้อม-10'
@@ -25,11 +53,7 @@ def build_welcome_payload(
     """
     API 1: ยินดีต้อนรับ (ตาม Spec MOPH V3.1)
     """
-    name = " ".join(
-        str(x).strip()
-        for x in [row.get("pname"), row.get("fname"), row.get("lname")]
-        if x
-    )
+    name = get_name(row)
 
     return {
         "cid": str(row["cid"]) if row.get("cid") else "",
@@ -48,16 +72,10 @@ def build_payload(row):
     """
     API 2: แจ้งเตือนคิว (ตาม Spec MOPH V3.1)
     """
-    name = " ".join(
-        str(x).strip()
-        for x in [row.get("pname"), row.get("fname"), row.get("lname")]
-        if x
-    )
-
-    queue_no = build_queue_display(row)
-    category = row.get("category_name") or ""
-    room = row.get("room_name") or row.get("room_code") or ""
-    service = f"{category} ห้อง {room}".strip()
+    name = get_name(row)
+    queue_no = get_queue_no(row)
+    service = get_service(row)
+    hn_no = get_hn(row)
 
     return {
         "cid": str(row["cid"]) if row.get("cid") else "",
@@ -65,7 +83,7 @@ def build_payload(row):
         "template": "แจ้งเตือนคิว",
         "header": "แจ้งเตือนคิว",
         "queue_no": queue_no,
-        "hn_no": str(row["hn"]),
+        "hn_no": hn_no,
         "service": service,
         "url": "",
         "message_title": "แจ้งเตือนคิว",
@@ -81,16 +99,10 @@ def build_queue_with_url_payload(
     """
     API 3: แจ้งเตือนคิว แบบมี url (ตาม Spec MOPH V3.1)
     """
-    name = " ".join(
-        str(x).strip()
-        for x in [row.get("pname"), row.get("fname"), row.get("lname")]
-        if x
-    )
-
-    queue_no = build_queue_display(row)
-    category = row.get("category_name") or ""
-    room = row.get("room_name") or row.get("room_code") or ""
-    service = f"{category} ห้อง {room}".strip()
+    name = get_name(row)
+    queue_no = get_queue_no(row)
+    service = get_service(row)
+    hn_no = get_hn(row)
 
     return {
         "cid": str(row["cid"]) if row.get("cid") else "",
@@ -98,7 +110,7 @@ def build_queue_with_url_payload(
         "template": "แจ้งเตือนคิว",
         "header": header,
         "queue_no": queue_no,
-        "hn_no": str(row["hn"]),
+        "hn_no": hn_no,
         "service": service,
         "url": url,
         "text": text,
@@ -120,16 +132,10 @@ def build_almost_turn_payload(
     """
     API 4: ใกล้ถึงคิวของคุณแล้ว (ตาม Spec MOPH V3.1)
     """
-    name = " ".join(
-        str(x).strip()
-        for x in [row.get("pname"), row.get("fname"), row.get("lname")]
-        if x
-    )
-
-    queue_no = build_queue_display(row)
-    category = row.get("category_name") or ""
-    room = row.get("room_name") or row.get("room_code") or ""
-    service = f"{category} ห้อง {room}".strip()
+    name = get_name(row)
+    queue_no = get_queue_no(row)
+    service = get_service(row)
+    hn_no = get_hn(row)
 
     return {
         "cid": str(row["cid"]) if row.get("cid") else "",
@@ -138,7 +144,7 @@ def build_almost_turn_payload(
         "header": header,
         "queue_no": queue_no,
         "queue_waiting": str(queue_waiting),
-        "hn_no": str(row["hn"]),
+        "hn_no": hn_no,
         "service": service,
         "message_title": title,
         "message_html": f"<div><strong>รออีก {queue_waiting} คิว คิวที่ {queue_no} บริการ {service}</strong></div>",
@@ -157,16 +163,10 @@ def build_queue_changed_payload(
     """
     API 5: คิวของท่านมีการเปลี่ยนแปลง (ตาม Spec MOPH V3.1)
     """
-    name = " ".join(
-        str(x).strip()
-        for x in [row.get("pname"), row.get("fname"), row.get("lname")]
-        if x
-    )
-
-    queue_no = build_queue_display(row)
-    category = row.get("category_name") or ""
-    room = row.get("room_name") or row.get("room_code") or ""
-    service = f"{category} ห้อง {room}".strip()
+    name = get_name(row)
+    queue_no = get_queue_no(row)
+    service = get_service(row)
+    hn_no = get_hn(row)
 
     return {
         "cid": str(row["cid"]) if row.get("cid") else "",
@@ -175,7 +175,7 @@ def build_queue_changed_payload(
         "header": header,
         "queue_no": queue_no,
         "queue_waiting": str(queue_waiting),
-        "hn_no": str(row["hn"]),
+        "hn_no": hn_no,
         "service": service,
         "url": "",
         "text": text,
@@ -197,16 +197,10 @@ def build_queue_changed_with_url_payload(
     """
     API 6: คิวของท่านมีการเปลี่ยนแปลง แบบมี url (ตาม Spec MOPH V3.1)
     """
-    name = " ".join(
-        str(x).strip()
-        for x in [row.get("pname"), row.get("fname"), row.get("lname")]
-        if x
-    )
-
-    queue_no = build_queue_display(row)
-    category = row.get("category_name") or ""
-    room = row.get("room_name") or row.get("room_code") or ""
-    service = f"{category} ห้อง {room}".strip()
+    name = get_name(row)
+    queue_no = get_queue_no(row)
+    service = get_service(row)
+    hn_no = get_hn(row)
 
     return {
         "cid": str(row["cid"]) if row.get("cid") else "",
@@ -215,7 +209,7 @@ def build_queue_changed_with_url_payload(
         "header": header,
         "queue_no": queue_no,
         "queue_waiting": str(queue_waiting),
-        "hn_no": str(row["hn"]),
+        "hn_no": hn_no,
         "service": service,
         "url": url,
         "text": text,
