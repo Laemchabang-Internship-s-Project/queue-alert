@@ -63,7 +63,7 @@ async def get_pool():
 async def init_db():
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # สร้าง Sync table สำหรับลดภาระ NEOQ
+        # สร้าง/อัปเดต Sync table สำหรับลดภาระ NEOQ
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS opd_queue_sync (
                 vn VARCHAR(50) PRIMARY KEY,
@@ -85,7 +85,7 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_queue_sync_status ON opd_queue_sync(queue_date, status_id);
         """)
 
-        # สร้าง Notification log table
+        # สร้าง/อัปเดต Notification log table
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS notification_log (
                 id BIGSERIAL PRIMARY KEY,
@@ -110,6 +110,10 @@ async def init_db():
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
                 UNIQUE (vn, notification_type)
             );
+            ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS max_retries INTEGER NOT NULL DEFAULT 3;
+            ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS is_permanent_error BOOLEAN NOT NULL DEFAULT FALSE;
+            ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS moph_code VARCHAR(50);
+            ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS last_error TEXT;
             CREATE INDEX IF NOT EXISTS idx_notification_vn ON notification_log(vn);
             CREATE INDEX IF NOT EXISTS idx_notification_status ON notification_log(status);
             CREATE INDEX IF NOT EXISTS idx_notification_date ON notification_log(queue_date);

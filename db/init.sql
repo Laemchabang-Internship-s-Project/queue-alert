@@ -45,6 +45,11 @@ CREATE TABLE IF NOT EXISTS notification_log (
     UNIQUE (vn, notification_type)
 );
 
+ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS max_retries INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS is_permanent_error BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS moph_code VARCHAR(50);
+ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS last_error TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_notification_vn ON notification_log(vn);
 CREATE INDEX IF NOT EXISTS idx_notification_status ON notification_log(status);
 CREATE INDEX IF NOT EXISTS idx_notification_date ON notification_log(queue_date);
