@@ -7,12 +7,18 @@ from app.moph import (
     build_payload,
     build_queue_with_url_payload,
     build_almost_turn_payload,
+    build_welcome_payload,
+    build_queue_changed_payload,
+    build_queue_changed_with_url_payload,
     send_to_moph
 )
 from app.postgres import (
     sync_queues_to_postgres,
     get_pending_queues_from_postgres,
     get_almost_turn_queues_from_postgres,
+    get_welcome_queues_from_postgres,
+    get_changed_queues_from_postgres,
+    clear_queue_changed_flag,
     record_notification_start,
     update_notification_result
 )
@@ -58,13 +64,28 @@ async def process_queue_row(row, notification_type: str = "queue_created"):
     await record_notification_start(data)
 
     # 2. สร้าง MOPH JSON Payload ตามประเภทการแจ้งเตือน
-    if notification_type == "almost_turn":
+    if notification_type == "welcome":
+        payload = build_welcome_payload(row)
+    elif notification_type == "almost_turn":
         queue_waiting = row.get("queue_waiting", 0)
         payload = build_almost_turn_payload(
             row=row,
             queue_waiting=queue_waiting,
             url=settings.queue_tracking_url
         )
+    elif notification_type == "queue_changed":
+        queue_waiting = row.get("queue_waiting", 0)
+        if settings.queue_tracking_url:
+            payload = build_queue_changed_with_url_payload(
+                row=row,
+                queue_waiting=queue_waiting,
+                url=settings.queue_tracking_url
+            )
+        else:
+            payload = build_queue_changed_payload(
+                row=row,
+                queue_waiting=queue_waiting
+            )
     else:
         # queue_created
         if settings.queue_tracking_url:
@@ -94,6 +115,8 @@ async def process_queue_row(row, notification_type: str = "queue_created"):
             "MOPH SENT SUCCESS [%s] VN=%s queue=%s cid=%s payload=%s res=%s",
             notification_type, vn, queue_no, row.get("cid"), payload, res_text
         )
+        if notification_type == "queue_changed":
+            await clear_queue_changed_flag(vn)
     else:
         if is_permanent_error:
             logger.error(
@@ -122,6 +145,13 @@ async def queue_worker():
                 await sync_queues_to_postgres(neoq_rows)
                 logger.info("Synced %d waiting queues from NEOQ to Local Postgres", len(neoq_rows))
 
+            # Phase B0: ประมวลผลแจ้งเตือนแรกเริ่ม (welcome)
+            welcome_rows = await get_welcome_queues_from_postgres()
+            if welcome_rows:
+                logger.info("Processing %d pending/retry 'welcome' notifications", len(welcome_rows))
+                for row in welcome_rows:
+                    await process_queue_row(row, notification_type="welcome")
+
             # Phase B1: ประมวลผลแจ้งเตือนคิวแรกรับ (queue_created)
             created_rows = await get_pending_queues_from_postgres()
             if created_rows:
@@ -137,6 +167,13 @@ async def queue_worker():
                 logger.info("Processing %d pending/retry 'almost_turn' notifications", len(almost_rows))
                 for row in almost_rows:
                     await process_queue_row(row, notification_type="almost_turn")
+
+            # Phase B3: ประมวลผลแจ้งเตือนเปลี่ยนแปลงคิว (queue_changed)
+            changed_rows = await get_changed_queues_from_postgres()
+            if changed_rows:
+                logger.info("Processing %d pending/retry 'queue_changed' notifications", len(changed_rows))
+                for row in changed_rows:
+                    await process_queue_row(row, notification_type="queue_changed")
 
         except Exception:
             logger.exception("Worker execution error in sync/processing cycle")

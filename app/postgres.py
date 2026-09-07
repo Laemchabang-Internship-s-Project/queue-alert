@@ -83,6 +83,7 @@ async def init_db():
             );
             ALTER TABLE opd_queue_sync ADD COLUMN IF NOT EXISTS room_name VARCHAR(150);
             CREATE INDEX IF NOT EXISTS idx_queue_sync_status ON opd_queue_sync(queue_date, status_id);
+            ALTER TABLE opd_queue_sync ADD COLUMN IF NOT EXISTS is_queue_changed BOOLEAN DEFAULT FALSE;
         """)
 
         # สร้าง/อัปเดต Notification log table
@@ -153,6 +154,11 @@ async def sync_queues_to_postgres(rows):
                 queue_date = EXCLUDED.queue_date,
                 queue_time = EXCLUDED.queue_time,
                 status_id = EXCLUDED.status_id,
+                is_queue_changed = CASE
+                    WHEN opd_queue_sync.room_code IS DISTINCT FROM EXCLUDED.room_code THEN TRUE
+                    WHEN opd_queue_sync.qnumber IS DISTINCT FROM EXCLUDED.qnumber THEN TRUE
+                    ELSE opd_queue_sync.is_queue_changed
+                END,
                 synced_at = NOW();
         """
         records = [
@@ -247,6 +253,92 @@ async def get_almost_turn_queues_from_postgres(threshold: int = 2):
             ORDER BY q.queue_waiting ASC, q.time ASC;
         """, threshold)
         return [dict(r) for r in rows]
+
+
+async def get_welcome_queues_from_postgres():
+    """
+    ดึงรายการคิวใหม่ที่ยังไม่เคยส่งแจ้งเตือนแรกรับ (welcome)
+    หรือเคยส่งล้มเหลวแต่ยัง Retry ได้
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT
+                s.vn, s.hn, s.cid, s.pname, s.fname, s.lname,
+                s.qnumber, s.category_name, s.room_code, s.room_name,
+                s.queue_date AS date, s.queue_time AS time, s.status_id,
+                COALESCE(l.status, 'PENDING') AS notif_status,
+                COALESCE(l.attempt_count, 0) AS attempt_count,
+                COALESCE(l.max_retries, 3) AS max_retries
+            FROM opd_queue_sync s
+            LEFT JOIN notification_log l
+                   ON s.vn = l.vn AND l.notification_type = 'welcome'
+            WHERE s.queue_date = CURRENT_DATE
+              AND s.status_id = 1
+              AND s.qnumber IS NOT NULL
+              AND (
+                  l.vn IS NULL
+                  OR (l.status = 'FAILED' AND l.attempt_count < l.max_retries AND l.is_permanent_error = FALSE)
+              )
+            ORDER BY s.queue_time ASC, s.vn ASC;
+        """)
+        return [dict(r) for r in rows]
+
+
+async def get_changed_queues_from_postgres():
+    """
+    ดึงรายการคิวที่มีการเปลี่ยนแปลง (is_queue_changed = TRUE)
+    พร้อมกับคำนวณ queue_waiting ปัจจุบัน
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            WITH queue_positions AS (
+                SELECT
+                    s.vn, s.hn, s.cid, s.pname, s.fname, s.lname,
+                    s.qnumber, s.category_name, s.room_code, s.room_name,
+                    s.queue_date AS date, s.queue_time AS time, s.status_id,
+                    s.is_queue_changed,
+                    (
+                        COUNT(*) OVER (
+                            PARTITION BY s.queue_date, COALESCE(s.room_code, s.room_name)
+                            ORDER BY s.queue_time ASC, s.vn ASC
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                        )
+                    ) AS queue_waiting
+                FROM opd_queue_sync s
+                WHERE s.queue_date = CURRENT_DATE
+                  AND s.status_id = 1
+                  AND s.qnumber IS NOT NULL
+            )
+            SELECT
+                q.*,
+                COALESCE(l.status, 'PENDING') AS notif_status,
+                COALESCE(l.attempt_count, 0) AS attempt_count,
+                COALESCE(l.max_retries, 3) AS max_retries
+            FROM queue_positions q
+            LEFT JOIN notification_log l
+                   ON q.vn = l.vn AND l.notification_type = 'queue_changed'
+            WHERE q.is_queue_changed = TRUE
+              AND (
+                  l.vn IS NULL
+                  OR (l.status = 'FAILED' AND l.attempt_count < l.max_retries AND l.is_permanent_error = FALSE)
+              )
+            ORDER BY q.time ASC, q.vn ASC;
+        """)
+        return [dict(r) for r in rows]
+
+
+async def clear_queue_changed_flag(vn):
+    """
+    รีเซ็ตสถานะ is_queue_changed เป็น FALSE หลังจากส่งแจ้งเตือนเปลี่ยนแปลงสำเร็จ
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE opd_queue_sync SET is_queue_changed = FALSE WHERE vn = $1",
+            vn
+        )
 
 
 async def record_notification_start(data):
