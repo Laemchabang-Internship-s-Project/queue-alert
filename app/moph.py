@@ -125,9 +125,9 @@ def build_almost_turn_payload(
     row,
     queue_waiting,
     url="",
-    header="ใกล้ถึงคิวของคุณแล้ว",
-    text="ใกล้ถึงคิวของคุณแล้ว กรุณามารอที่หน้าห้องตรวจด้วยค่ะ",
-    title="ใกล้ถึงคิวของคุณแล้ว",
+    header="ใกล้ถึงคิวของคุณแล้ว กรุณามารอรับบริการที่หน้าห้องด้วยนะคะ",
+    text="กรุณามารอรับบริการที่หน้าห้องด้วยนะคะ",
+    title="ใกล้ถึงคิวของคุณแล้ว กรุณามารอรับบริการที่หน้าห้องด้วยนะคะ",
 ):
     """
     API 4: ใกล้ถึงคิวของคุณแล้ว (ตาม Spec MOPH V3.1)
@@ -146,8 +146,10 @@ def build_almost_turn_payload(
         "queue_waiting": str(queue_waiting),
         "hn_no": hn_no,
         "service": service,
+        "url": url,
+        "text": text,
         "message_title": title,
-        "message_html": f"<div><strong>รออีก {queue_waiting} คิว คิวที่ {queue_no} บริการ {service}</strong></div>",
+        "message_html": f"<div><strong>รออีก {queue_waiting} คิว คิวที่ {queue_no} บริการ {service} {text}</strong></div>",
         "message_text": title,
         "message_type": "HPT",
     }
