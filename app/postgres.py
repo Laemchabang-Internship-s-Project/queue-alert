@@ -81,6 +81,7 @@ async def init_db():
                 status_id INTEGER,
                 synced_at TIMESTAMPTZ DEFAULT NOW()
             );
+            ALTER TABLE opd_queue_sync ADD COLUMN IF NOT EXISTS room_name VARCHAR(150);
             CREATE INDEX IF NOT EXISTS idx_queue_sync_status ON opd_queue_sync(queue_date, status_id);
         """)
 

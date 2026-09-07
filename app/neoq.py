@@ -17,7 +17,7 @@ async def get_waiting_queues():
 
     try:
         async with conn.cursor(aiomysql.DictCursor) as cursor:
-            # 1. ลอง Query โดย JOIN ตาราง room เพื่อเอา room_name
+            # 1. Query โดย JOIN opd_queue กับ room ด้วย room_code และ room_name
             sql_join = """
                 SELECT
                     q.vn,
@@ -46,40 +46,9 @@ async def get_waiting_queues():
                 await cursor.execute(sql_join)
                 return await cursor.fetchall()
             except Exception as exc:
-                logger.warning("JOIN room table with r.room_name failed (%s), trying r.name...", exc)
+                logger.warning("JOIN room table with r.room_name failed (%s), falling back to opd_queue only", exc)
 
-            # 2. ลอง Query กรณีตาราง room ใช้ชื่อคอลัมน์ r.name
-            sql_join_name = """
-                SELECT
-                    q.vn,
-                    q.hn,
-                    q.room_code,
-                    COALESCE(r.name, q.room_code) AS room_name,
-                    q.category_name,
-                    q.qnumber,
-                    q.cid,
-                    q.pname,
-                    q.fname,
-                    q.lname,
-                    q.date,
-                    q.time,
-                    q.visit_time,
-                    q.status_id,
-                    q.status_open_vn
-                FROM opd_queue q
-                LEFT JOIN room r ON q.room_code = r.room_code OR q.room_code = r.code
-                WHERE q.date = CURDATE()
-                  AND q.status_id = 1
-                  AND q.qnumber IS NOT NULL
-                ORDER BY q.time ASC, q.vn ASC
-            """
-            try:
-                await cursor.execute(sql_join_name)
-                return await cursor.fetchall()
-            except Exception as exc:
-                logger.warning("JOIN room table failed (%s), falling back to opd_queue table only", exc)
-
-            # 3. Fallback หลัก: Query เฉพาะ opd_queue และใช้ room_code แทน room_name
+            # 2. Fallback: Query เฉพาะ opd_queue กรณีตาราง room ไม่สามารถ JOIN ได้
             sql_fallback = """
                 SELECT
                     vn,
