@@ -91,21 +91,21 @@ async def process_queue_row(row, notification_type: str = "queue_created"):
 
     if is_success:
         logger.info(
-            "MOPH SENT SUCCESS [%s] VN=%s queue=%s",
-            notification_type, vn, queue_no
+            "MOPH SENT SUCCESS [%s] VN=%s queue=%s cid=%s payload=%s res=%s",
+            notification_type, vn, queue_no, row.get("cid"), payload, res_text
         )
     else:
         if is_permanent_error:
             logger.error(
                 "MOPH PERMANENT FAILED [%s] VN=%s http=%s moph_code=%s res=%s",
-                notification_type, vn, http_status, moph_code, res_text[:200]
+                notification_type, vn, http_status, moph_code, res_text[:500]
             )
         else:
             attempt = row.get("attempt_count", 0) + 1
             max_r = row.get("max_retries", 3)
             logger.warning(
-                "MOPH RETRYABLE FAILED (Attempt %d/%d) [%s] VN=%s http=%s moph_code=%s",
-                attempt, max_r, notification_type, vn, http_status, moph_code
+                "MOPH RETRYABLE FAILED (Attempt %d/%d) [%s] VN=%s http=%s moph_code=%s res=%s",
+                attempt, max_r, notification_type, vn, http_status, moph_code, res_text[:500]
             )
 
 
