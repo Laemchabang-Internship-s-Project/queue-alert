@@ -181,8 +181,8 @@ async def test_dashboard():
     <!-- Passcode Protection Modal Overlay -->
     <div id="auth-modal" class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
         <div class="glass max-w-md w-full p-8 rounded-3xl border border-slate-700/80 shadow-2xl text-center">
-            <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold text-3xl mx-auto mb-4 shadow-lg shadow-blue-500/30">
-                🔒
+            <div class="w-14 h-14 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 mx-auto mb-4">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
             </div>
             <h2 class="text-xl font-bold text-white mb-2">กรอกรหัสผ่านเพื่อเข้าใช้งาน</h2>
             <p class="text-xs text-slate-400 mb-6">กรุณากรอกรหัสผ่านยืนยันตัวตนก่อนเข้าสู่หน้า Console</p>
@@ -190,7 +190,7 @@ async def test_dashboard():
             <div class="space-y-4">
                 <div>
                     <input type="password" id="auth-password" placeholder="กรอกรหัสผ่านที่นี่..." class="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-center text-white text-base focus:outline-none focus:border-blue-500 font-mono tracking-widest" onkeyup="if(event.key==='Enter') checkAuth()">
-                    <p id="auth-error" class="text-xs text-rose-400 mt-2 hidden">⚠️ รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง</p>
+                    <p id="auth-error" class="text-xs text-rose-400 mt-2 hidden">รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง</p>
                 </div>
                 <button onclick="checkAuth()" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl transition shadow-lg shadow-blue-500/25">
                     เข้าสู่ระบบ
@@ -219,7 +219,7 @@ async def test_dashboard():
                         Running
                     </span>
                     <button onclick="logout()" class="px-3 py-1.5 text-xs bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg transition border border-rose-500/20">
-                        🚪 ออกจากระบบ
+                        ออกจากระบบ
                     </button>
                 </div>
             </div>
@@ -255,7 +255,7 @@ async def test_dashboard():
                 <div class="lg:col-span-6 space-y-6">
                     <div class="glass p-6 rounded-3xl">
                         <h2 class="text-base font-semibold mb-4 text-slate-200">
-                            ⚙️ ป้อนข้อมูลทดสอบยิง MOPH Alert (Manual)
+                            ป้อนข้อมูลทดสอบยิง MOPH Alert (Manual)
                         </h2>
 
                         <!-- Template Selector Grid -->
@@ -342,7 +342,7 @@ async def test_dashboard():
                             </div>
 
                             <button onclick="sendTestNotification()" id="btn-send" class="w-full mt-4 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold rounded-2xl shadow-lg shadow-blue-500/25 transition duration-200 flex items-center justify-center space-x-2">
-                                <span>🚀 ยิง MOPH Alert ตอนนี้</span>
+                                <span>ยิง MOPH Alert ตอนนี้</span>
                             </button>
                         </div>
                     </div>
@@ -353,7 +353,7 @@ async def test_dashboard():
                     <div class="glass p-6 rounded-3xl h-full flex flex-col justify-between">
                         <div>
                             <h2 class="text-base font-semibold mb-3 text-slate-200 flex items-center justify-between">
-                                <span>📦 JSON Payload ที่ส่งไปยัง MOPH</span>
+                                <span>JSON Payload ที่ส่งไปยัง MOPH</span>
                                 <span id="send-status-badge" class="hidden text-xs px-2.5 py-0.5 rounded-full font-semibold"></span>
                             </h2>
                             <pre id="payload-container" class="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs font-mono text-blue-300 min-h-[380px] overflow-x-auto">
@@ -369,7 +369,7 @@ async def test_dashboard():
             <!-- History Log Table -->
             <div class="glass p-6 rounded-3xl mt-8">
                 <h2 class="text-base font-semibold mb-4 text-slate-200 flex items-center justify-between">
-                    <span>📋 ประวัติการยิงแจ้งเตือนล่าสุด</span>
+                    <span>ประวัติการยิงแจ้งเตือนล่าสุด</span>
                     <button onclick="fetchNotifications()" class="text-xs text-blue-400 hover:underline">รีเฟรชตาราง</button>
                 </h2>
                 <div class="overflow-x-auto">
@@ -398,14 +398,20 @@ async def test_dashboard():
         const AUTH_KEY = 'EA0010823';
         let selectedTemplate = 'welcome';
 
+        function startDashboard() {
+            fetchStats();
+            fetchNotifications();
+            setInterval(fetchStats, 5000);
+            setInterval(fetchNotifications, 5000);
+        }
+
         function checkAuth() {
             const pass = document.getElementById('auth-password').value;
             if (pass === AUTH_KEY) {
                 sessionStorage.setItem('console_authed', 'true');
                 document.getElementById('auth-modal').classList.add('hidden');
                 document.getElementById('main-app').classList.remove('hidden');
-                fetchStats();
-                fetchNotifications();
+                startDashboard();
             } else {
                 document.getElementById('auth-error').classList.remove('hidden');
             }
@@ -420,6 +426,7 @@ async def test_dashboard():
         if (sessionStorage.getItem('console_authed') === 'true') {
             document.getElementById('auth-modal').classList.add('hidden');
             document.getElementById('main-app').classList.remove('hidden');
+            startDashboard();
         }
 
         function selectTemplate(type) {
@@ -493,7 +500,7 @@ async def test_dashboard():
 
             const btn = document.getElementById('btn-send');
             btn.disabled = true;
-            btn.innerHTML = '<span>⏳ กำลังยิง MOPH Alert...</span>';
+            btn.innerHTML = '<span>กำลังยิง MOPH Alert...</span>';
 
             const payloadData = {
                 template_type: selectedTemplate,
@@ -538,7 +545,7 @@ async def test_dashboard():
                 alert('เกิดข้อผิดพลาดในการยิง API: ' + err.message);
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = '<span>🚀 ยิง MOPH Alert ตอนนี้</span>';
+                btn.innerHTML = '<span>ยิง MOPH Alert ตอนนี้</span>';
             }
         }
     </script>
@@ -546,3 +553,4 @@ async def test_dashboard():
 </html>
     """
     return HTMLResponse(content=html_content)
+

@@ -422,9 +422,12 @@ async def get_notification_stats():
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
             SELECT
-                COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE) AS total_today,
-                COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE AND notification_type = 'queue_created') AS created_count,
-                COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE AND notification_type = 'almost_turn') AS almost_turn_count,
+                GREATEST(
+                    (SELECT COUNT(*) FROM opd_queue_sync WHERE queue_date = CURRENT_DATE),
+                    COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE)
+                ) AS total_today,
+                COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE AND (notification_type LIKE '%welcome%' OR notification_type LIKE '%queue_created%')) AS created_count,
+                COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE AND notification_type LIKE '%almost_turn%') AS almost_turn_count,
                 COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE AND status = 'SENT') AS sent_count,
                 COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE AND status = 'PROCESSING') AS processing_count,
                 COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE AND status = 'FAILED') AS failed_count,
@@ -432,6 +435,7 @@ async def get_notification_stats():
             FROM notification_log;
         """)
         return dict(row) if row else {}
+
 
 
 async def get_recent_notifications(limit: int = 50):
