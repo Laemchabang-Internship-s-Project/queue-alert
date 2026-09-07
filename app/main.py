@@ -453,13 +453,18 @@ async def test_dashboard():
                         const statusClass = item.status === 'SENT' 
                             ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
                             : 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+                        const typeTag = item.queue_type === 'pharmacy'
+                            ? '<span class="px-1.5 py-0.5 text-[9px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded mr-1">ยา</span>'
+                            : '<span class="px-1.5 py-0.5 text-[9px] font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30 rounded mr-1">OPD</span>';
                         return `
                             <tr class="hover:bg-slate-900/50 transition">
                                 <td class="py-3 px-4">
                                     <div class="font-medium text-white">${item.vn}</div>
                                     <div class="text-[10px] text-slate-500">${new Date(item.created_at).toLocaleTimeString()}</div>
                                 </td>
-                                <td class="py-3 px-4 font-mono text-[11px] text-blue-400">${item.notification_type}</td>
+                                <td class="py-3 px-4 font-mono text-[11px] text-blue-400">
+                                    ${typeTag}${item.notification_type}
+                                </td>
                                 <td class="py-3 px-4 font-medium text-white">${item.patient_name || '-'}</td>
                                 <td class="py-3 px-4">
                                     <span class="font-semibold text-white">${item.queue_no}</span>
