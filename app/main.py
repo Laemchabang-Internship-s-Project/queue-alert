@@ -56,15 +56,13 @@ app = FastAPI(
 class TestSendRequest(BaseModel):
     template_type: str  # welcome, queue_created, queue_created_url, almost_turn, queue_changed, queue_changed_url
     cid: str
-    pname: Optional[str] = "นาย"
-    fname: Optional[str] = "ทดสอบ"
-    lname: Optional[str] = "แจ้งเตือน"
-    hn: Optional[str] = "65-001234"
-    category_name: Optional[str] = "แผนกผู้ป่วยนอก"
-    qnumber: Optional[str] = "A001"
-    room_name: Optional[str] = "ห้องตรวจ 1"
+    name: Optional[str] = "นาย ทดสอบ แจ้งเตือน"
+    hn_no: Optional[str] = "65-001234"
+    queue_no: Optional[str] = "A001"
+    service: Optional[str] = "แผนกผู้ป่วยนอก ห้อง ห้องตรวจ 1"
     queue_waiting: Optional[int] = 2
     url: Optional[str] = "https://morprom.moph.go.th"
+    text: Optional[str] = None
 
 
 @app.get("/health")
@@ -92,31 +90,33 @@ async def test_send_notification(req: TestSendRequest):
     vn = f"TEST{datetime.now().strftime('%Y%m%d%H%M%S')}"
     row = {
         "vn": vn,
-        "hn": req.hn,
         "cid": req.cid,
-        "pname": req.pname,
-        "fname": req.fname,
-        "lname": req.lname,
-        "qnumber": req.qnumber,
-        "category_name": req.category_name,
-        "room_name": req.room_name,
-        "room_code": req.room_name,
+        "name": req.name,
+        "hn_no": req.hn_no,
+        "hn": req.hn_no,
+        "queue_no": req.queue_no,
+        "qnumber": req.queue_no,
+        "service": req.service,
         "date": datetime.now().date(),
         "time": datetime.now().time(),
     }
 
     url = req.url or settings.queue_tracking_url or "https://morprom.moph.go.th"
 
+    extra_args = {}
+    if req.text:
+        extra_args["text"] = req.text
+
     if req.template_type == "welcome":
-        payload = build_welcome_payload(row)
+        payload = build_welcome_payload(row, **extra_args)
     elif req.template_type == "queue_created_url":
-        payload = build_queue_with_url_payload(row, url=url)
+        payload = build_queue_with_url_payload(row, url=url, **extra_args)
     elif req.template_type == "almost_turn":
-        payload = build_almost_turn_payload(row, queue_waiting=req.queue_waiting, url=url)
+        payload = build_almost_turn_payload(row, queue_waiting=req.queue_waiting, url=url, **extra_args)
     elif req.template_type == "queue_changed":
-        payload = build_queue_changed_payload(row, queue_waiting=req.queue_waiting)
+        payload = build_queue_changed_payload(row, queue_waiting=req.queue_waiting, **extra_args)
     elif req.template_type == "queue_changed_url":
-        payload = build_queue_changed_with_url_payload(row, queue_waiting=req.queue_waiting, url=url)
+        payload = build_queue_changed_with_url_payload(row, queue_waiting=req.queue_waiting, url=url, **extra_args)
     else:  # queue_created
         payload = build_payload(row)
 
@@ -127,11 +127,11 @@ async def test_send_notification(req: TestSendRequest):
     data = {
         "vn": vn,
         "queue_date": row["date"],
-        "queue_no": req.qnumber or "A001",
+        "queue_no": req.queue_no or "A001",
         "cid": req.cid,
-        "patient_name": f"{req.pname} {req.fname} {req.lname}".strip(),
-        "hn_no": req.hn,
-        "service": f"{req.category_name} ห้อง {req.room_name}",
+        "patient_name": req.name or "",
+        "hn_no": req.hn_no or "",
+        "service": req.service or "",
         "notification_type": notif_type
     }
     await record_notification_start(data)
@@ -255,7 +255,7 @@ async def test_dashboard():
                 <div class="lg:col-span-6 space-y-6">
                     <div class="glass p-6 rounded-3xl">
                         <h2 class="text-base font-semibold mb-4 text-slate-200">
-                            ป้อนข้อมูลทดสอบยิง MOPH Alert (Manual)
+                            ป้อนข้อมูลทดสอบยิง MOPH Alert (MOPH JSON Fields)
                         </h2>
 
                         <!-- Template Selector Grid -->
@@ -287,58 +287,48 @@ async def test_dashboard():
                             </div>
                         </div>
 
-                        <!-- Manual Input Fields -->
+                        <!-- Manual Input Fields (MOPH JSON Field Structure) -->
                         <div class="space-y-4">
                             <div>
-                                <label class="block text-xs text-slate-400 mb-1">CID (เลขบัตรประชาชน 13 หลัก) <span class="text-blue-400">*ใส่เพื่อทดสอบรับ LINE</span></label>
-                                <input type="text" id="input-cid" placeholder="กรอกเลข CID 13 หลัก..." class="w-full px-4 py-2.5 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-blue-500">
+                                <label class="block text-xs text-slate-400 mb-1">cid <span class="text-slate-500">(เลขบัตรประชาชน 13 หลัก)</span> <span class="text-blue-400">*ใส่เพื่อทดสอบรับ LINE</span></label>
+                                <input type="text" id="input-cid" placeholder="กรอกเลข CID 13 หลัก..." class="w-full px-4 py-2.5 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-blue-500 font-mono">
                             </div>
-                            <div class="grid grid-cols-3 gap-3">
-                                <div>
-                                    <label class="block text-xs text-slate-400 mb-1">คำนำหน้า</label>
-                                    <input type="text" id="input-pname" value="นาย" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                                </div>
-                                <div>
-                                    <label class="block text-xs text-slate-400 mb-1">ชื่อ</label>
-                                    <input type="text" id="input-fname" value="ทดสอบ" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                                </div>
-                                <div>
-                                    <label class="block text-xs text-slate-400 mb-1">นามสกุล</label>
-                                    <input type="text" id="input-lname" value="แจ้งเตือน" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                                </div>
+
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">name <span class="text-slate-500">(ชื่อ-นามสกุล)</span></label>
+                                <input type="text" id="input-name" value="นาย ทดสอบ แจ้งเตือน" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
                             </div>
 
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block text-xs text-slate-400 mb-1">เลข HN</label>
-                                    <input type="text" id="input-hn" value="65-001234" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
+                                    <label class="block text-xs text-slate-400 mb-1">hn_no <span class="text-slate-500">(เลข HN)</span></label>
+                                    <input type="text" id="input-hn-no" value="65-001234" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white font-mono">
                                 </div>
                                 <div>
-                                    <label class="block text-xs text-slate-400 mb-1">เลขคิว (Queue No)</label>
-                                    <input type="text" id="input-qnumber" value="A001" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
+                                    <label class="block text-xs text-slate-400 mb-1">queue_no <span class="text-slate-500">(เลขคิว)</span></label>
+                                    <input type="text" id="input-queue-no" value="A001" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white font-mono">
                                 </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">service <span class="text-slate-500">(แผนกบริการ/ห้องตรวจ)</span></label>
+                                <input type="text" id="input-service" value="แผนกผู้ป่วยนอก ห้อง ห้องตรวจ 1" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
                             </div>
 
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block text-xs text-slate-400 mb-1">แผนกบริการ</label>
-                                    <input type="text" id="input-category" value="แผนกผู้ป่วยนอก" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
+                                    <label class="block text-xs text-slate-400 mb-1">queue_waiting <span class="text-slate-500">(จำนวนคิวรอ)</span></label>
+                                    <input type="number" id="input-waiting" value="2" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white font-mono">
                                 </div>
                                 <div>
-                                    <label class="block text-xs text-slate-400 mb-1">ห้องตรวจ</label>
-                                    <input type="text" id="input-room" value="ห้องตรวจ 1" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                                </div>
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="block text-xs text-slate-400 mb-1">จำนวนคิวรอ</label>
-                                    <input type="number" id="input-waiting" value="2" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                                </div>
-                                <div>
-                                    <label class="block text-xs text-slate-400 mb-1">URL เช็คคิว (ถ้ามี)</label>
+                                    <label class="block text-xs text-slate-400 mb-1">url <span class="text-slate-500">(ลิงก์เช็คคิว)</span></label>
                                     <input type="text" id="input-url" value="https://morprom.moph.go.th" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
                                 </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">text <span class="text-slate-500">(ข้อความต้อนรับ/ข้อความเพิ่มเติม)</span></label>
+                                <input type="text" id="input-text" placeholder="ระบุข้อความเพิ่มเติม (ถ้ามี)..." class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
                             </div>
 
                             <button onclick="sendTestNotification()" id="btn-send" class="w-full mt-4 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold rounded-2xl shadow-lg shadow-blue-500/25 transition duration-200 flex items-center justify-center space-x-2">
@@ -505,15 +495,13 @@ async def test_dashboard():
             const payloadData = {
                 template_type: selectedTemplate,
                 cid: cid,
-                pname: document.getElementById('input-pname').value.trim(),
-                fname: document.getElementById('input-fname').value.trim(),
-                lname: document.getElementById('input-lname').value.trim(),
-                hn: document.getElementById('input-hn').value.trim(),
-                category_name: document.getElementById('input-category').value.trim(),
-                qnumber: document.getElementById('input-qnumber').value.trim(),
-                room_name: document.getElementById('input-room').value.trim(),
+                name: document.getElementById('input-name').value.trim(),
+                hn_no: document.getElementById('input-hn-no').value.trim(),
+                queue_no: document.getElementById('input-queue-no').value.trim(),
+                service: document.getElementById('input-service').value.trim(),
                 queue_waiting: parseInt(document.getElementById('input-waiting').value) || 0,
-                url: document.getElementById('input-url').value.trim()
+                url: document.getElementById('input-url').value.trim(),
+                text: document.getElementById('input-text').value.trim()
             };
 
             try {
