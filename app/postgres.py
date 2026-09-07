@@ -63,10 +63,10 @@ async def get_pool():
 async def init_db():
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # สร้าง/อัปเดต Sync table สำหรับลดภาระ NEOQ
+        # สร้าง/อัปเดต Sync table สำหรับลดภาระ NEOQ (รองรับทั้ง opd_queue และ pharmacy_queue)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS opd_queue_sync (
-                vn VARCHAR(50) PRIMARY KEY,
+                vn VARCHAR(50) NOT NULL,
                 hn VARCHAR(50),
                 cid VARCHAR(13),
                 pname VARCHAR(50),
@@ -79,11 +79,32 @@ async def init_db():
                 queue_date DATE,
                 queue_time TIME,
                 status_id INTEGER,
-                synced_at TIMESTAMPTZ DEFAULT NOW()
+                queue_type VARCHAR(20) NOT NULL DEFAULT 'opd',
+                is_queue_changed BOOLEAN DEFAULT FALSE,
+                synced_at TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (vn, queue_type)
             );
             ALTER TABLE opd_queue_sync ADD COLUMN IF NOT EXISTS room_name VARCHAR(150);
-            CREATE INDEX IF NOT EXISTS idx_queue_sync_status ON opd_queue_sync(queue_date, status_id);
             ALTER TABLE opd_queue_sync ADD COLUMN IF NOT EXISTS is_queue_changed BOOLEAN DEFAULT FALSE;
+            ALTER TABLE opd_queue_sync ADD COLUMN IF NOT EXISTS queue_type VARCHAR(20) DEFAULT 'opd';
+
+            DO $$
+            BEGIN
+                -- ปรับ Primary Key ให้รองรับ (vn, queue_type) สำหรับกรณีคนไข้คนเดียวกันมีคิวทั้ง OPD และ Pharmacy
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE constraint_name = 'opd_queue_sync_pkey' AND table_name = 'opd_queue_sync'
+                ) THEN
+                    BEGIN
+                        ALTER TABLE opd_queue_sync DROP CONSTRAINT opd_queue_sync_pkey;
+                        ALTER TABLE opd_queue_sync ADD PRIMARY KEY (vn, queue_type);
+                    EXCEPTION WHEN OTHERS THEN
+                        NULL;
+                    END;
+                END IF;
+            END $$;
+
+            CREATE INDEX IF NOT EXISTS idx_queue_sync_status ON opd_queue_sync(queue_date, status_id, queue_type);
         """)
 
         # สร้าง/อัปเดต Notification log table
@@ -91,6 +112,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS notification_log (
                 id BIGSERIAL PRIMARY KEY,
                 vn VARCHAR(50) NOT NULL,
+                queue_type VARCHAR(20) NOT NULL DEFAULT 'opd',
                 queue_date DATE NOT NULL,
                 queue_no VARCHAR(50) NOT NULL,
                 cid VARCHAR(13),
@@ -109,12 +131,29 @@ async def init_db():
                 sent_at TIMESTAMPTZ,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
-                UNIQUE (vn, notification_type)
+                UNIQUE (vn, queue_type, notification_type)
             );
+            ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS queue_type VARCHAR(20) NOT NULL DEFAULT 'opd';
             ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS max_retries INTEGER NOT NULL DEFAULT 3;
             ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS is_permanent_error BOOLEAN NOT NULL DEFAULT FALSE;
             ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS moph_code VARCHAR(50);
             ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS last_error TEXT;
+
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE constraint_name = 'notification_log_vn_notification_type_key' AND table_name = 'notification_log'
+                ) THEN
+                    BEGIN
+                        ALTER TABLE notification_log DROP CONSTRAINT notification_log_vn_notification_type_key;
+                        ALTER TABLE notification_log ADD CONSTRAINT notification_log_vn_queue_type_notif_type_key UNIQUE (vn, queue_type, notification_type);
+                    EXCEPTION WHEN OTHERS THEN
+                        NULL;
+                    END;
+                END IF;
+            END $$;
+
             CREATE INDEX IF NOT EXISTS idx_notification_vn ON notification_log(vn);
             CREATE INDEX IF NOT EXISTS idx_notification_status ON notification_log(status);
             CREATE INDEX IF NOT EXISTS idx_notification_date ON notification_log(queue_date);
@@ -123,63 +162,61 @@ async def init_db():
 
 async def sync_queues_to_postgres(rows):
     """
-    UPSERT ข้อมูลคิวจาก NEOQ ลงใน Local PostgreSQL
-    เพื่อลด Workload ของ NEOQ Database หลัก
+    UPSERT ข้อมูลคิวจาก NEOQ (ทั้ง opd_queue และ pharmacy_queue) ลงใน Local PostgreSQL
     """
-    if not rows:
-        return
-
     pool = await get_pool()
     async with pool.acquire() as conn:
-        sql = """
-            INSERT INTO opd_queue_sync (
-                vn, hn, cid, pname, fname, lname,
-                qnumber, category_name, room_code, room_name,
-                queue_date, queue_time, status_id, synced_at
-            )
-            VALUES (
-                $1, $2, $3, $4, $5, $6,
-                $7, $8, $9, $10, $11, $12, $13, NOW()
-            )
-            ON CONFLICT (vn) DO UPDATE SET
-                hn = EXCLUDED.hn,
-                cid = EXCLUDED.cid,
-                pname = EXCLUDED.pname,
-                fname = EXCLUDED.fname,
-                lname = EXCLUDED.lname,
-                qnumber = EXCLUDED.qnumber,
-                category_name = EXCLUDED.category_name,
-                room_code = EXCLUDED.room_code,
-                room_name = EXCLUDED.room_name,
-                queue_date = EXCLUDED.queue_date,
-                queue_time = EXCLUDED.queue_time,
-                status_id = EXCLUDED.status_id,
-                is_queue_changed = CASE
-                    WHEN opd_queue_sync.room_code IS DISTINCT FROM EXCLUDED.room_code THEN TRUE
-                    WHEN opd_queue_sync.qnumber IS DISTINCT FROM EXCLUDED.qnumber THEN TRUE
-                    ELSE opd_queue_sync.is_queue_changed
-                END,
-                synced_at = NOW();
-        """
-        records = [
-            (
-                str(r["vn"]),
-                str(r["hn"]) if r.get("hn") else None,
-                str(r["cid"]) if r.get("cid") else None,
-                r.get("pname"),
-                r.get("fname"),
-                r.get("lname"),
-                str(r["qnumber"]) if r.get("qnumber") is not None else None,
-                r.get("category_name"),
-                r.get("room_code"),
-                r.get("room_name"),
-                parse_date_field(r.get("date")),
-                parse_time_field(r.get("time")),
-                r.get("status_id")
-            )
-            for r in rows
-        ]
-        await conn.executemany(sql, records)
+        if rows:
+            sql = """
+                INSERT INTO opd_queue_sync (
+                    vn, hn, cid, pname, fname, lname,
+                    qnumber, category_name, room_code, room_name,
+                    queue_date, queue_time, status_id, queue_type, synced_at
+                )
+                VALUES (
+                    $1, $2, $3, $4, $5, $6,
+                    $7, $8, $9, $10, $11, $12, $13, $14, NOW()
+                )
+                ON CONFLICT (vn, queue_type) DO UPDATE SET
+                    hn = EXCLUDED.hn,
+                    cid = EXCLUDED.cid,
+                    pname = EXCLUDED.pname,
+                    fname = EXCLUDED.fname,
+                    lname = EXCLUDED.lname,
+                    qnumber = EXCLUDED.qnumber,
+                    category_name = EXCLUDED.category_name,
+                    room_code = EXCLUDED.room_code,
+                    room_name = EXCLUDED.room_name,
+                    queue_date = EXCLUDED.queue_date,
+                    queue_time = EXCLUDED.queue_time,
+                    status_id = EXCLUDED.status_id,
+                    is_queue_changed = CASE
+                        WHEN opd_queue_sync.room_code IS DISTINCT FROM EXCLUDED.room_code THEN TRUE
+                        WHEN opd_queue_sync.qnumber IS DISTINCT FROM EXCLUDED.qnumber THEN TRUE
+                        ELSE opd_queue_sync.is_queue_changed
+                    END,
+                    synced_at = NOW();
+            """
+            records = [
+                (
+                    str(r["vn"]),
+                    str(r["hn"]) if r.get("hn") else None,
+                    str(r["cid"]) if r.get("cid") else None,
+                    r.get("pname"),
+                    r.get("fname"),
+                    r.get("lname"),
+                    str(r["qnumber"]) if r.get("qnumber") is not None else None,
+                    r.get("category_name"),
+                    r.get("room_code"),
+                    r.get("room_name"),
+                    parse_date_field(r.get("date")),
+                    parse_time_field(r.get("time")),
+                    r.get("status_id"),
+                    r.get("queue_type", "opd")
+                )
+                for r in rows
+            ]
+            await conn.executemany(sql, records)
 
 
 async def get_pending_queues_from_postgres():
@@ -193,15 +230,15 @@ async def get_pending_queues_from_postgres():
             SELECT
                 s.vn, s.hn, s.cid, s.pname, s.fname, s.lname,
                 s.qnumber, s.category_name, s.room_code, s.room_name,
-                s.queue_date AS date, s.queue_time AS time, s.status_id,
+                s.queue_date AS date, s.queue_time AS time, s.status_id, s.queue_type,
                 COALESCE(l.status, 'PENDING') AS notif_status,
                 COALESCE(l.attempt_count, 0) AS attempt_count,
                 COALESCE(l.max_retries, 3) AS max_retries
             FROM opd_queue_sync s
             LEFT JOIN notification_log l
-                   ON s.vn = l.vn AND l.notification_type = 'queue_created'
+                   ON s.vn = l.vn AND s.queue_type = l.queue_type AND l.notification_type = 'queue_created'
             WHERE s.queue_date = CURRENT_DATE
-              AND s.status_id = 1
+              AND s.status_id IN (1, 3)
               AND s.qnumber IS NOT NULL
               AND (
                   l.vn IS NULL
@@ -225,17 +262,17 @@ async def get_almost_turn_queues_from_postgres(target_waiting: int = 2):
                 SELECT
                     s.vn, s.hn, s.cid, s.pname, s.fname, s.lname,
                     s.qnumber, s.category_name, s.room_code, s.room_name,
-                    s.queue_date AS date, s.queue_time AS time, s.status_id,
+                    s.queue_date AS date, s.queue_time AS time, s.status_id, s.queue_type,
                     (
                         COUNT(*) OVER (
-                            PARTITION BY s.queue_date, COALESCE(s.room_code, s.room_name)
+                            PARTITION BY s.queue_date, s.queue_type, COALESCE(s.room_code, s.room_name)
                             ORDER BY s.queue_time ASC, s.vn ASC
                             ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
                         )
                     ) AS queue_waiting
                 FROM opd_queue_sync s
                 WHERE s.queue_date = CURRENT_DATE
-                  AND s.status_id = 1
+                  AND s.status_id IN (1, 3)
                   AND s.qnumber IS NOT NULL
             )
             SELECT
@@ -245,7 +282,7 @@ async def get_almost_turn_queues_from_postgres(target_waiting: int = 2):
                 COALESCE(l.max_retries, 3) AS max_retries
             FROM queue_positions q
             LEFT JOIN notification_log l
-                   ON q.vn = l.vn AND l.notification_type = $2
+                   ON q.vn = l.vn AND q.queue_type = l.queue_type AND l.notification_type = $2
             WHERE q.queue_waiting = $1
               AND (
                   l.vn IS NULL
@@ -254,7 +291,6 @@ async def get_almost_turn_queues_from_postgres(target_waiting: int = 2):
             ORDER BY q.queue_waiting ASC, q.time ASC;
         """, target_waiting, notif_type)
         return [dict(r) for r in rows]
-
 
 
 async def get_welcome_queues_from_postgres():
@@ -268,15 +304,15 @@ async def get_welcome_queues_from_postgres():
             SELECT
                 s.vn, s.hn, s.cid, s.pname, s.fname, s.lname,
                 s.qnumber, s.category_name, s.room_code, s.room_name,
-                s.queue_date AS date, s.queue_time AS time, s.status_id,
+                s.queue_date AS date, s.queue_time AS time, s.status_id, s.queue_type,
                 COALESCE(l.status, 'PENDING') AS notif_status,
                 COALESCE(l.attempt_count, 0) AS attempt_count,
                 COALESCE(l.max_retries, 3) AS max_retries
             FROM opd_queue_sync s
             LEFT JOIN notification_log l
-                   ON s.vn = l.vn AND l.notification_type = 'welcome'
+                   ON s.vn = l.vn AND s.queue_type = l.queue_type AND l.notification_type = 'welcome'
             WHERE s.queue_date = CURRENT_DATE
-              AND s.status_id = 1
+              AND s.status_id IN (1, 3)
               AND s.qnumber IS NOT NULL
               AND (
                   l.vn IS NULL
@@ -299,18 +335,18 @@ async def get_changed_queues_from_postgres():
                 SELECT
                     s.vn, s.hn, s.cid, s.pname, s.fname, s.lname,
                     s.qnumber, s.category_name, s.room_code, s.room_name,
-                    s.queue_date AS date, s.queue_time AS time, s.status_id,
+                    s.queue_date AS date, s.queue_time AS time, s.status_id, s.queue_type,
                     s.is_queue_changed,
                     (
                         COUNT(*) OVER (
-                            PARTITION BY s.queue_date, COALESCE(s.room_code, s.room_name)
+                            PARTITION BY s.queue_date, s.queue_type, COALESCE(s.room_code, s.room_name)
                             ORDER BY s.queue_time ASC, s.vn ASC
                             ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
                         )
                     ) AS queue_waiting
                 FROM opd_queue_sync s
                 WHERE s.queue_date = CURRENT_DATE
-                  AND s.status_id = 1
+                  AND s.status_id IN (1, 3)
                   AND s.qnumber IS NOT NULL
             )
             SELECT
@@ -320,7 +356,7 @@ async def get_changed_queues_from_postgres():
                 COALESCE(l.max_retries, 3) AS max_retries
             FROM queue_positions q
             LEFT JOIN notification_log l
-                   ON q.vn = l.vn AND l.notification_type = 'queue_changed'
+                   ON q.vn = l.vn AND q.queue_type = l.queue_type AND l.notification_type = 'queue_changed'
             WHERE q.is_queue_changed = TRUE
               AND (
                   l.vn IS NULL
@@ -331,15 +367,15 @@ async def get_changed_queues_from_postgres():
         return [dict(r) for r in rows]
 
 
-async def clear_queue_changed_flag(vn):
+async def clear_queue_changed_flag(vn, queue_type: str = "opd"):
     """
     รีเซ็ตสถานะ is_queue_changed เป็น FALSE หลังจากส่งแจ้งเตือนเปลี่ยนแปลงสำเร็จ
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE opd_queue_sync SET is_queue_changed = FALSE WHERE vn = $1",
-            vn
+            "UPDATE opd_queue_sync SET is_queue_changed = FALSE WHERE vn = $1 AND queue_type = $2",
+            vn, queue_type
         )
 
 
@@ -348,21 +384,23 @@ async def record_notification_start(data):
     บันทึกการเริ่มส่งใน notification_log ( status = 'PROCESSING' )
     """
     pool = await get_pool()
+    queue_type = data.get("queue_type", "opd")
     async with pool.acquire() as conn:
         return await conn.fetchrow(
             """
             INSERT INTO notification_log (
-                vn, queue_date, queue_no, cid,
+                vn, queue_type, queue_date, queue_no, cid,
                 patient_name, hn_no, service, notification_type, status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PROCESSING')
-            ON CONFLICT (vn, notification_type)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PROCESSING')
+            ON CONFLICT (vn, queue_type, notification_type)
             DO UPDATE SET
                 status = 'PROCESSING',
                 updated_at = NOW()
             RETURNING id;
             """,
             data["vn"],
+            queue_type,
             data["queue_date"],
             data["queue_no"],
             data["cid"],
@@ -380,7 +418,8 @@ async def update_notification_result(
     is_permanent_error,
     response_status,
     moph_code,
-    response_body
+    response_body,
+    queue_type: str = "opd"
 ):
     """
     อัปเดตผลลัพธ์การส่ง MOPH ลง notification_log (SENT หรือ FAILED)
@@ -403,7 +442,8 @@ async def update_notification_result(
                 sent_at = CASE WHEN $6 THEN NOW() ELSE sent_at END,
                 updated_at = NOW()
             WHERE vn = $7
-              AND notification_type = $8
+              AND queue_type = $8
+              AND notification_type = $9
             """,
             status_str,
             is_permanent_error,
@@ -412,6 +452,7 @@ async def update_notification_result(
             body_text,
             success,
             vn,
+            queue_type,
             notification_type
         )
 
@@ -439,7 +480,6 @@ async def get_notification_stats():
         return dict(row) if row else {}
 
 
-
 async def get_recent_notifications(limit: int = 50):
     """
     ดึงรายการแจ้งเตือนล่าสุดเพื่อดูรายละเอียดใน Monitoring Dashboard
@@ -448,7 +488,7 @@ async def get_recent_notifications(limit: int = 50):
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT
-                vn, queue_date, queue_no, cid, patient_name, hn_no, service,
+                vn, queue_type, queue_date, queue_no, cid, patient_name, hn_no, service,
                 notification_type, status, attempt_count, max_retries,
                 is_permanent_error, response_status, moph_code, last_error,
                 sent_at, created_at, updated_at
@@ -457,3 +497,4 @@ async def get_recent_notifications(limit: int = 50):
             LIMIT $1;
         """, limit)
         return [dict(r) for r in rows]
+

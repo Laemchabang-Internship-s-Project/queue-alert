@@ -16,7 +16,6 @@ from app.postgres import (
     sync_queues_to_postgres,
     get_pending_queues_from_postgres,
     get_almost_turn_queues_from_postgres,
-    get_welcome_queues_from_postgres,
     get_changed_queues_from_postgres,
     clear_queue_changed_flag,
     record_notification_start,
@@ -49,8 +48,11 @@ async def process_queue_row(row, notification_type: str = "queue_created"):
         f'ห้อง {room_display}'
     ).strip()
 
+    queue_type = row.get("queue_type", "opd")
+
     data = {
         "vn": vn,
+        "queue_type": queue_type,
         "queue_date": row["date"],
         "queue_no": queue_no,
         "cid": str(row["cid"]) if row.get("cid") else None,
@@ -107,16 +109,17 @@ async def process_queue_row(row, notification_type: str = "queue_created"):
         is_permanent_error=is_permanent_error,
         response_status=http_status,
         moph_code=moph_code,
-        response_body=res_text
+        response_body=res_text,
+        queue_type=queue_type
     )
 
     if is_success:
         logger.info(
-            "MOPH SENT SUCCESS [%s] VN=%s queue=%s cid=%s payload=%s res=%s",
-            notification_type, vn, queue_no, row.get("cid"), payload, res_text
+            "MOPH SENT SUCCESS [%s] (%s) VN=%s queue=%s cid=%s payload=%s res=%s",
+            notification_type, queue_type, vn, queue_no, row.get("cid"), payload, res_text
         )
         if notification_type == "queue_changed":
-            await clear_queue_changed_flag(vn)
+            await clear_queue_changed_flag(vn, queue_type=queue_type)
     else:
         if is_permanent_error:
             logger.error(
@@ -144,13 +147,6 @@ async def queue_worker():
             if neoq_rows:
                 await sync_queues_to_postgres(neoq_rows)
                 logger.info("Synced %d waiting queues from NEOQ to Local Postgres", len(neoq_rows))
-
-            # Phase B0: ประมวลผลแจ้งเตือนแรกเริ่ม (welcome)
-            welcome_rows = await get_welcome_queues_from_postgres()
-            if welcome_rows:
-                logger.info("Processing %d pending/retry 'welcome' notifications", len(welcome_rows))
-                for row in welcome_rows:
-                    await process_queue_row(row, notification_type="welcome")
 
             # Phase B1: ประมวลผลแจ้งเตือนคิวแรกรับ (queue_created)
             created_rows = await get_pending_queues_from_postgres()
