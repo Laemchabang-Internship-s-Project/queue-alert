@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="NEOQ → MOPH Alert Console",
-    version="1.2.0",
+    version="1.3.0",
     lifespan=lifespan
 )
 
@@ -159,7 +159,7 @@ async def test_send_notification(req: TestSendRequest):
 @app.get("/", response_class=HTMLResponse)
 async def test_dashboard():
     """
-    หน้าเว็บสวยงามสำหรับทดสอบยิง MOPH Alert และดูสถิติ
+    หน้าเว็บแดชบอร์ดทดสอบยิง MOPH Alert (พร้อมระบบ Passcode Protection)
     """
     html_content = """
 <!DOCTYPE html>
@@ -167,7 +167,7 @@ async def test_dashboard():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NEOQ → MOPH Alert Test Console</title>
+    <title>NEOQ → MOPH Alert Console</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -177,220 +177,250 @@ async def test_dashboard():
     </style>
 </head>
 <body class="min-h-screen pb-12">
-    <!-- Navbar -->
-    <header class="glass sticky top-0 z-50 px-6 py-4 mb-8 border-b border-slate-800">
-        <div class="max-w-7xl mx-auto flex justify-between items-center">
-            <div class="flex items-center space-x-3">
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-blue-500/30">
-                    Q
-                </div>
-                <div>
-                    <h1 class="text-xl font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">NEOQ → MOPH Alert</h1>
-                    <p class="text-xs text-blue-400 font-medium">Interactive Test Console & Simulator</p>
-                </div>
+
+    <!-- Passcode Protection Modal Overlay -->
+    <div id="auth-modal" class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
+        <div class="glass max-w-md w-full p-8 rounded-3xl border border-slate-700/80 shadow-2xl text-center">
+            <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold text-3xl mx-auto mb-4 shadow-lg shadow-blue-500/30">
+                🔒
             </div>
-            <div class="flex items-center space-x-3">
-                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <span class="w-2 h-2 rounded-full bg-emerald-400 mr-2 animate-pulse"></span>
-                    System Running
-                </span>
-                <button onclick="fetchStats()" class="px-4 py-2 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition border border-slate-700">
-                    🔄 รีเฟรชสถิติ
+            <h2 class="text-xl font-bold text-white mb-2">กรอกรหัสผ่านเพื่อเข้าใช้งาน</h2>
+            <p class="text-xs text-slate-400 mb-6">กรุณากรอกรหัสผ่านยืนยันตัวตนก่อนเข้าสู่หน้า Console</p>
+            
+            <div class="space-y-4">
+                <div>
+                    <input type="password" id="auth-password" placeholder="กรอกรหัสผ่านที่นี่..." class="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-center text-white text-base focus:outline-none focus:border-blue-500 font-mono tracking-widest" onkeyup="if(event.key==='Enter') checkAuth()">
+                    <p id="auth-error" class="text-xs text-rose-400 mt-2 hidden">⚠️ รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง</p>
+                </div>
+                <button onclick="checkAuth()" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl transition shadow-lg shadow-blue-500/25">
+                    เข้าสู่ระบบ
                 </button>
             </div>
         </div>
-    </header>
+    </div>
 
-    <div class="max-w-7xl mx-auto px-4 sm:px-6">
-        <!-- Dashboard Summary Stats -->
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-            <div class="glass p-4 rounded-2xl">
-                <p class="text-xs text-slate-400 mb-1">คิวทั้งหมดวันนี้</p>
-                <h3 id="stat-total" class="text-2xl font-bold text-white">0</h3>
-            </div>
-            <div class="glass p-4 rounded-2xl">
-                <p class="text-xs text-slate-400 mb-1">ยินดีต้อนรับ/คิวใหม่</p>
-                <h3 id="stat-created" class="text-2xl font-bold text-blue-400">0</h3>
-            </div>
-            <div class="glass p-4 rounded-2xl">
-                <p class="text-xs text-slate-400 mb-1">ใกล้ถึงคิว</p>
-                <h3 id="stat-almost" class="text-2xl font-bold text-amber-400">0</h3>
-            </div>
-            <div class="glass p-4 rounded-2xl">
-                <p class="text-xs text-slate-400 mb-1">ส่งสำเร็จ (SENT)</p>
-                <h3 id="stat-sent" class="text-2xl font-bold text-emerald-400">0</h3>
-            </div>
-            <div class="glass p-4 rounded-2xl">
-                <p class="text-xs text-slate-400 mb-1">ล้มเหลว (FAILED)</p>
-                <h3 id="stat-failed" class="text-2xl font-bold text-rose-400">0</h3>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <!-- Left Form Side -->
-            <div class="lg:col-span-7 space-y-6">
-                <!-- Preset Quick Buttons -->
-                <div class="glass p-6 rounded-3xl">
-                    <h2 class="text-base font-semibold mb-3 text-slate-200 flex items-center">
-                        ⚡ Quick Presets (ข้อมูลตัวอย่าง)
-                    </h2>
-                    <div class="flex flex-wrap gap-2 mb-4">
-                        <button onclick="setPreset('piyaporn')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs rounded-xl border border-slate-700 transition">
-                            👤 ตัวอย่างที่ 1: คุณปิยะพร (ตาม Spec)
-                        </button>
-                        <button onclick="setPreset('mycid')" class="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 text-xs rounded-xl border border-blue-500/30 transition">
-                            📱 ใส่ CID ของฉันเองเพื่อรับ LINE
-                        </button>
+    <!-- Main Content (Hidden until authenticated) -->
+    <div id="main-app" class="hidden">
+        <!-- Navbar -->
+        <header class="glass sticky top-0 z-50 px-6 py-4 mb-8 border-b border-slate-800">
+            <div class="max-w-7xl mx-auto flex justify-between items-center">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-blue-500/30">
+                        Q
                     </div>
+                    <div>
+                        <h1 class="text-xl font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">NEOQ → MOPH Alert</h1>
+                        <p class="text-xs text-blue-400 font-medium">Interactive Test Console</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 mr-2 animate-pulse"></span>
+                        Running
+                    </span>
+                    <button onclick="logout()" class="px-3 py-1.5 text-xs bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg transition border border-rose-500/20">
+                        🚪 ออกจากระบบ
+                    </button>
+                </div>
+            </div>
+        </header>
 
-                    <!-- Template Selector Grid -->
-                    <label class="block text-xs text-slate-400 font-medium mb-2">เลือก Template ที่ต้องการทดสอบ (6 แบบ):</label>
-                    <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6" id="template-grid">
-                        <div onclick="selectTemplate('welcome')" id="tmpl-welcome" class="glass p-3 rounded-xl cursor-pointer border border-slate-700 hover:border-blue-500 transition text-xs card-active">
-                            <span class="font-semibold text-blue-400 block mb-1">1. ยินดีต้อนรับ</span>
-                            <span class="text-[10px] text-slate-400">ข้อความต้อนรับเข้าบริการ</span>
+        <div class="max-w-7xl mx-auto px-4 sm:px-6">
+            <!-- Dashboard Summary Stats -->
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+                <div class="glass p-4 rounded-2xl">
+                    <p class="text-xs text-slate-400 mb-1">คิวทั้งหมดวันนี้</p>
+                    <h3 id="stat-total" class="text-2xl font-bold text-white">0</h3>
+                </div>
+                <div class="glass p-4 rounded-2xl">
+                    <p class="text-xs text-slate-400 mb-1">ยินดีต้อนรับ/คิวใหม่</p>
+                    <h3 id="stat-created" class="text-2xl font-bold text-blue-400">0</h3>
+                </div>
+                <div class="glass p-4 rounded-2xl">
+                    <p class="text-xs text-slate-400 mb-1">ใกล้ถึงคิว</p>
+                    <h3 id="stat-almost" class="text-2xl font-bold text-amber-400">0</h3>
+                </div>
+                <div class="glass p-4 rounded-2xl">
+                    <p class="text-xs text-slate-400 mb-1">ส่งสำเร็จ (SENT)</p>
+                    <h3 id="stat-sent" class="text-2xl font-bold text-emerald-400">0</h3>
+                </div>
+                <div class="glass p-4 rounded-2xl">
+                    <p class="text-xs text-slate-400 mb-1">ล้มเหลว (FAILED)</p>
+                    <h3 id="stat-failed" class="text-2xl font-bold text-rose-400">0</h3>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                <!-- Left Form Side -->
+                <div class="lg:col-span-6 space-y-6">
+                    <div class="glass p-6 rounded-3xl">
+                        <h2 class="text-base font-semibold mb-4 text-slate-200">
+                            ⚙️ ป้อนข้อมูลทดสอบยิง MOPH Alert (Manual)
+                        </h2>
+
+                        <!-- Template Selector Grid -->
+                        <label class="block text-xs text-slate-400 font-medium mb-2">เลือก Template ที่ต้องการทดสอบ (6 แบบ):</label>
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6" id="template-grid">
+                            <div onclick="selectTemplate('welcome')" id="tmpl-welcome" class="glass p-3 rounded-xl cursor-pointer border border-slate-700 hover:border-blue-500 transition text-xs card-active">
+                                <span class="font-semibold text-blue-400 block mb-1">1. ยินดีต้อนรับ</span>
+                                <span class="text-[10px] text-slate-400">ข้อความต้อนรับเข้าบริการ</span>
+                            </div>
+                            <div onclick="selectTemplate('queue_created')" id="tmpl-queue_created" class="glass p-3 rounded-xl cursor-pointer border border-slate-700 hover:border-blue-500 transition text-xs">
+                                <span class="font-semibold text-emerald-400 block mb-1">2. แจ้งเตือนคิว</span>
+                                <span class="text-[10px] text-slate-400">แจ้งเลขคิวและห้องตรวจ</span>
+                            </div>
+                            <div onclick="selectTemplate('queue_created_url')" id="tmpl-queue_created_url" class="glass p-3 rounded-xl cursor-pointer border border-slate-700 hover:border-blue-500 transition text-xs">
+                                <span class="font-semibold text-indigo-400 block mb-1">3. แจ้งคิว (มี URL)</span>
+                                <span class="text-[10px] text-slate-400">แจ้งคิวพร้อมแนบลิงก์</span>
+                            </div>
+                            <div onclick="selectTemplate('almost_turn')" id="tmpl-almost_turn" class="glass p-3 rounded-xl cursor-pointer border border-slate-700 hover:border-blue-500 transition text-xs">
+                                <span class="font-semibold text-amber-400 block mb-1">4. ใกล้ถึงคิว</span>
+                                <span class="text-[10px] text-slate-400">แจ้งจำนวนคิวรอ</span>
+                            </div>
+                            <div onclick="selectTemplate('queue_changed')" id="tmpl-queue_changed" class="glass p-3 rounded-xl cursor-pointer border border-slate-700 hover:border-blue-500 transition text-xs">
+                                <span class="font-semibold text-purple-400 block mb-1">5. คิวเปลี่ยน</span>
+                                <span class="text-[10px] text-slate-400">แจ้งเตือนเปลี่ยนคิว</span>
+                            </div>
+                            <div onclick="selectTemplate('queue_changed_url')" id="tmpl-queue_changed_url" class="glass p-3 rounded-xl cursor-pointer border border-slate-700 hover:border-blue-500 transition text-xs">
+                                <span class="font-semibold text-pink-400 block mb-1">6. คิวเปลี่ยน (URL)</span>
+                                <span class="text-[10px] text-slate-400">แจ้งย้ายห้องพร้อมลิงก์</span>
+                            </div>
                         </div>
-                        <div onclick="selectTemplate('queue_created')" id="tmpl-queue_created" class="glass p-3 rounded-xl cursor-pointer border border-slate-700 hover:border-blue-500 transition text-xs">
-                            <span class="font-semibold text-emerald-400 block mb-1">2. แจ้งเตือนคิว</span>
-                            <span class="text-[10px] text-slate-400">แจ้งเลขคิวและห้องตรวจ</span>
-                        </div>
-                        <div onclick="selectTemplate('queue_created_url')" id="tmpl-queue_created_url" class="glass p-3 rounded-xl cursor-pointer border border-slate-700 hover:border-blue-500 transition text-xs">
-                            <span class="font-semibold text-indigo-400 block mb-1">3. แจ้งเตือนคิว (มี URL)</span>
-                            <span class="text-[10px] text-slate-400">แจ้งคิวพร้อมแนบลิงก์เช็ค</span>
-                        </div>
-                        <div onclick="selectTemplate('almost_turn')" id="tmpl-almost_turn" class="glass p-3 rounded-xl cursor-pointer border border-slate-700 hover:border-blue-500 transition text-xs">
-                            <span class="font-semibold text-amber-400 block mb-1">4. ใกล้ถึงคิวของคุณแล้ว</span>
-                            <span class="text-[10px] text-slate-400">แจ้งจำนวนคิวรอ (รออีก N คิว)</span>
-                        </div>
-                        <div onclick="selectTemplate('queue_changed')" id="tmpl-queue_changed" class="glass p-3 rounded-xl cursor-pointer border border-slate-700 hover:border-blue-500 transition text-xs">
-                            <span class="font-semibold text-purple-400 block mb-1">5. คิวเปลี่ยน</span>
-                            <span class="text-[10px] text-slate-400">แจ้งเตือนย้ายห้อง/เปลี่ยนคิว</span>
-                        </div>
-                        <div onclick="selectTemplate('queue_changed_url')" id="tmpl-queue_changed_url" class="glass p-3 rounded-xl cursor-pointer border border-slate-700 hover:border-blue-500 transition text-xs">
-                            <span class="font-semibold text-pink-400 block mb-1">6. คิวเปลี่ยน (มี URL)</span>
-                            <span class="text-[10px] text-slate-400">แจ้งย้ายห้องพร้อมลิงก์ใหม่</span>
+
+                        <!-- Manual Input Fields -->
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">CID (เลขบัตรประชาชน 13 หลัก) <span class="text-blue-400">*ใส่เพื่อทดสอบรับ LINE</span></label>
+                                <input type="text" id="input-cid" placeholder="กรอกเลข CID 13 หลัก..." class="w-full px-4 py-2.5 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-blue-500">
+                            </div>
+                            <div class="grid grid-cols-3 gap-3">
+                                <div>
+                                    <label class="block text-xs text-slate-400 mb-1">คำนำหน้า</label>
+                                    <input type="text" id="input-pname" value="นาย" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-slate-400 mb-1">ชื่อ</label>
+                                    <input type="text" id="input-fname" value="ทดสอบ" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-slate-400 mb-1">นามสกุล</label>
+                                    <input type="text" id="input-lname" value="แจ้งเตือน" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs text-slate-400 mb-1">เลข HN</label>
+                                    <input type="text" id="input-hn" value="65-001234" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-slate-400 mb-1">เลขคิว (Queue No)</label>
+                                    <input type="text" id="input-qnumber" value="A001" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs text-slate-400 mb-1">แผนกบริการ</label>
+                                    <input type="text" id="input-category" value="แผนกผู้ป่วยนอก" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-slate-400 mb-1">ห้องตรวจ</label>
+                                    <input type="text" id="input-room" value="ห้องตรวจ 1" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs text-slate-400 mb-1">จำนวนคิวรอ</label>
+                                    <input type="number" id="input-waiting" value="2" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-slate-400 mb-1">URL เช็คคิว (ถ้ามี)</label>
+                                    <input type="text" id="input-url" value="https://morprom.moph.go.th" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
+                                </div>
+                            </div>
+
+                            <button onclick="sendTestNotification()" id="btn-send" class="w-full mt-4 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold rounded-2xl shadow-lg shadow-blue-500/25 transition duration-200 flex items-center justify-center space-x-2">
+                                <span>🚀 ยิง MOPH Alert ตอนนี้</span>
+                            </button>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Input Fields -->
-                    <div class="space-y-4">
+                <!-- Right JSON Inspector Side -->
+                <div class="lg:col-span-6 space-y-6">
+                    <div class="glass p-6 rounded-3xl h-full flex flex-col justify-between">
                         <div>
-                            <label class="block text-xs text-slate-400 mb-1">CID (เลขบัตรประชาชน 13 หลัก) <span class="text-rose-400">*สำคัญเพื่อรับ LINE</span></label>
-                            <input type="text" id="input-cid" value="1209700461501" class="w-full px-4 py-2.5 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-blue-500">
-                        </div>
-                        <div class="grid grid-cols-3 gap-3">
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">คำนำหน้า</label>
-                                <input type="text" id="input-pname" value="นางสาว" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">ชื่อ</label>
-                                <input type="text" id="input-fname" value="ปิยะพร" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">นามสกุล</label>
-                                <input type="text" id="input-lname" value="เป็งนำสุวรรณ" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">เลข HN</label>
-                                <input type="text" id="input-hn" value="065-088698" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">เลขคิว (Queue No)</label>
-                                <input type="text" id="input-qnumber" value="01-A001" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">แผนกบริการ</label>
-                                <input type="text" id="input-category" value="แผนกสูตินรีเวช" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">ห้องตรวจ</label>
-                                <input type="text" id="input-room" value="ห้องตรวจ 1" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">จำนวนคิวรอ (สำหรับใกล้ถึงคิว/เปลี่ยนคิว)</label>
-                                <input type="number" id="input-waiting" value="3" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">URL เช็คคิว (ถ้ามี)</label>
-                                <input type="text" id="input-url" value="https://morprom.moph.go.th" class="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-white">
-                            </div>
-                        </div>
-
-                        <button onclick="sendTestNotification()" id="btn-send" class="w-full mt-4 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold rounded-2xl shadow-lg shadow-blue-500/25 transition duration-200 flex items-center justify-center space-x-2">
-                            <span>🚀 ยิง MOPH Alert ตอนนี้</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Right Results Side -->
-            <div class="lg:col-span-5 space-y-6">
-                <!-- Response Output Card -->
-                <div class="glass p-6 rounded-3xl">
-                    <h2 class="text-base font-semibold mb-3 text-slate-200 flex items-center justify-between">
-                        <span>📡 ผลการยิง MOPH Response</span>
-                        <span id="response-badge" class="hidden text-xs px-2.5 py-0.5 rounded-full"></span>
-                    </h2>
-                    <div id="response-container" class="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs font-mono min-h-[160px] overflow-x-auto text-slate-400">
-                        กดปุ่ม "🚀 ยิง MOPH Alert" เพื่อดูผลตอบกลับทาง API ที่นี่...
-                    </div>
-                </div>
-
-                <!-- Generated Payload Inspector -->
-                <div class="glass p-6 rounded-3xl">
-                    <h2 class="text-base font-semibold mb-3 text-slate-200">
-                        📦 JSON Payload ที่ส่งไปยัง MOPH
-                    </h2>
-                    <pre id="payload-container" class="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs font-mono text-blue-300 min-h-[140px] overflow-x-auto">
+                            <h2 class="text-base font-semibold mb-3 text-slate-200 flex items-center justify-between">
+                                <span>📦 JSON Payload ที่ส่งไปยัง MOPH</span>
+                                <span id="send-status-badge" class="hidden text-xs px-2.5 py-0.5 rounded-full font-semibold"></span>
+                            </h2>
+                            <pre id="payload-container" class="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs font-mono text-blue-300 min-h-[380px] overflow-x-auto">
 {
-  "info": "รอยิงข้อมูล..."
+  "info": "รอกรอกข้อมูลและกดปุ่มยิงเพื่อดู JSON Payload..."
 }
-                    </pre>
+                            </pre>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <!-- History Log Table -->
-        <div class="glass p-6 rounded-3xl mt-8">
-            <h2 class="text-base font-semibold mb-4 text-slate-200 flex items-center justify-between">
-                <span>📋 ประวัติการยิงแจ้งเตือนล่าสุด (50 รายการล่าสุด)</span>
-                <button onclick="fetchNotifications()" class="text-xs text-blue-400 hover:underline">รีเฟรชตาราง</button>
-            </h2>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse text-xs">
-                    <thead>
-                        <tr class="border-b border-slate-800 text-slate-400">
-                            <th class="py-3 px-4">VN / เวลา</th>
-                            <th class="py-3 px-4">ประเภท</th>
-                            <th class="py-3 px-4">CID</th>
-                            <th class="py-3 px-4">ผู้ป่วย</th>
-                            <th class="py-3 px-4">คิว / บริการ</th>
-                            <th class="py-3 px-4">สถานะ</th>
-                            <th class="py-3 px-4">MOPH Response</th>
-                        </tr>
-                    </thead>
-                    <tbody id="logs-tbody" class="divide-y divide-slate-800/50 text-slate-300">
-                        <tr>
-                            <td colspan="7" class="py-6 text-center text-slate-500">กำลังโหลดประวัติ...</td>
-                        </tr>
-                    </tbody>
-                </table>
+            <!-- History Log Table -->
+            <div class="glass p-6 rounded-3xl mt-8">
+                <h2 class="text-base font-semibold mb-4 text-slate-200 flex items-center justify-between">
+                    <span>📋 ประวัติการยิงแจ้งเตือนล่าสุด</span>
+                    <button onclick="fetchNotifications()" class="text-xs text-blue-400 hover:underline">รีเฟรชตาราง</button>
+                </h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="border-b border-slate-800 text-slate-400">
+                                <th class="py-3 px-4">VN / เวลา</th>
+                                <th class="py-3 px-4">ประเภท</th>
+                                <th class="py-3 px-4">ผู้ป่วย</th>
+                                <th class="py-3 px-4">คิว / บริการ</th>
+                                <th class="py-3 px-4">สถานะ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-tbody" class="divide-y divide-slate-800/50 text-slate-300">
+                            <tr>
+                                <td colspan="5" class="py-6 text-center text-slate-500">กำลังโหลดประวัติ...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
+        const AUTH_KEY = 'EA0010823';
         let selectedTemplate = 'welcome';
+
+        function checkAuth() {
+            const pass = document.getElementById('auth-password').value;
+            if (pass === AUTH_KEY) {
+                sessionStorage.setItem('console_authed', 'true');
+                document.getElementById('auth-modal').classList.add('hidden');
+                document.getElementById('main-app').classList.remove('hidden');
+                fetchStats();
+                fetchNotifications();
+            } else {
+                document.getElementById('auth-error').classList.remove('hidden');
+            }
+        }
+
+        function logout() {
+            sessionStorage.removeItem('console_authed');
+            location.reload();
+        }
+
+        // Auto auth check on load
+        if (sessionStorage.getItem('console_authed') === 'true') {
+            document.getElementById('auth-modal').classList.add('hidden');
+            document.getElementById('main-app').classList.remove('hidden');
+        }
 
         function selectTemplate(type) {
             selectedTemplate = type;
@@ -398,24 +428,6 @@ async def test_dashboard():
                 div.classList.remove('card-active');
             });
             document.getElementById('tmpl-' + type).classList.add('card-active');
-        }
-
-        function setPreset(preset) {
-            if (preset === 'piyaporn') {
-                document.getElementById('input-cid').value = '1209700461501';
-                document.getElementById('input-pname').value = 'นางสาว';
-                document.getElementById('input-fname').value = 'ปิยะพร';
-                document.getElementById('input-lname').value = 'เป็งนำสุวรรณ';
-                document.getElementById('input-hn').value = '065-088698';
-                document.getElementById('input-qnumber').value = '01-A001';
-                document.getElementById('input-category').value = 'แผนกสูตินรีเวช';
-                document.getElementById('input-room').value = 'ห้องตรวจ 1';
-            } else if (preset === 'mycid') {
-                const myCid = prompt('กรุณาใส่เลข CID 13 หลักของคุณเพื่อทดสอบยิงเข้า LINE หมอพร้อม:', '1209700461501');
-                if (myCid) {
-                    document.getElementById('input-cid').value = myCid.trim();
-                }
-            }
         }
 
         async function fetchStats() {
@@ -451,25 +463,21 @@ async def test_dashboard():
                                     <div class="text-[10px] text-slate-500">${new Date(item.created_at).toLocaleTimeString()}</div>
                                 </td>
                                 <td class="py-3 px-4 font-mono text-[11px] text-blue-400">${item.notification_type}</td>
-                                <td class="py-3 px-4 font-mono">${item.cid || '-'}</td>
-                                <td class="py-3 px-4">${item.patient_name || '-'}</td>
+                                <td class="py-3 px-4 font-medium text-white">${item.patient_name || '-'}</td>
                                 <td class="py-3 px-4">
                                     <span class="font-semibold text-white">${item.queue_no}</span>
                                     <span class="text-slate-400 text-[11px]">(${item.service || '-'})</span>
                                 </td>
                                 <td class="py-3 px-4">
-                                    <span class="px-2 py-0.5 text-[10px] font-semibold rounded-full border ${statusClass}">
+                                    <span class="px-2.5 py-1 text-[10px] font-semibold rounded-full border ${statusClass}">
                                         ${item.status}
                                     </span>
-                                </td>
-                                <td class="py-3 px-4 font-mono text-[11px] max-w-xs truncate text-slate-400">
-                                    ${item.response_body ? item.response_body.substring(0, 80) : '-'}
                                 </td>
                             </tr>
                         `;
                     }).join('');
                 } else {
-                    tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-slate-500">ไม่พบประวัติการยิงวันนี้</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-500">ไม่พบประวัติการยิงวันนี้</td></tr>`;
                 }
             } catch (e) {
                 console.error(e);
@@ -477,13 +485,19 @@ async def test_dashboard():
         }
 
         async function sendTestNotification() {
+            const cid = document.getElementById('input-cid').value.trim();
+            if (!cid) {
+                alert('กรุณากรอกเลข CID 13 หลักก่อนสั่งยิงครับ');
+                return;
+            }
+
             const btn = document.getElementById('btn-send');
             btn.disabled = true;
             btn.innerHTML = '<span>⏳ กำลังยิง MOPH Alert...</span>';
 
             const payloadData = {
                 template_type: selectedTemplate,
-                cid: document.getElementById('input-cid').value.trim(),
+                cid: cid,
                 pname: document.getElementById('input-pname').value.trim(),
                 fname: document.getElementById('input-fname').value.trim(),
                 lname: document.getElementById('input-lname').value.trim(),
@@ -503,17 +517,14 @@ async def test_dashboard():
                 });
                 const json = await res.json();
 
-                // Show response
-                const respContainer = document.getElementById('response-container');
-                const badge = document.getElementById('response-badge');
-                
-                respContainer.innerHTML = `<pre>${JSON.stringify(json, null, 2)}</pre>`;
+                // Show payload and badge
                 document.getElementById('payload-container').innerHTML = JSON.stringify(json.payload, null, 2);
 
+                const badge = document.getElementById('send-status-badge');
                 badge.classList.remove('hidden', 'bg-emerald-500/20', 'text-emerald-400', 'bg-rose-500/20', 'text-rose-400');
                 if (json.is_success) {
                     badge.classList.add('bg-emerald-500/20', 'text-emerald-400');
-                    badge.innerText = `HTTP ${json.http_status} - SUCCESS`;
+                    badge.innerText = `HTTP ${json.http_status} - SENT SUCCESS`;
                 } else {
                     badge.classList.add('bg-rose-500/20', 'text-rose-400');
                     badge.innerText = `HTTP ${json.http_status || 'ERROR'} - FAILED`;
@@ -530,10 +541,6 @@ async def test_dashboard():
                 btn.innerHTML = '<span>🚀 ยิง MOPH Alert ตอนนี้</span>';
             }
         }
-
-        // Init load
-        fetchStats();
-        fetchNotifications();
     </script>
 </body>
 </html>
