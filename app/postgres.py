@@ -34,6 +34,7 @@ async def init_db():
                 qnumber VARCHAR(50),
                 category_name VARCHAR(100),
                 room_code VARCHAR(50),
+                room_name VARCHAR(150),
                 queue_date DATE,
                 queue_time TIME,
                 status_id INTEGER,
@@ -86,12 +87,12 @@ async def sync_queues_to_postgres(rows):
         sql = """
             INSERT INTO opd_queue_sync (
                 vn, hn, cid, pname, fname, lname,
-                qnumber, category_name, room_code,
+                qnumber, category_name, room_code, room_name,
                 queue_date, queue_time, status_id, synced_at
             )
             VALUES (
                 $1, $2, $3, $4, $5, $6,
-                $7, $8, $9, $10, $11, $12, NOW()
+                $7, $8, $9, $10, $11, $12, $13, NOW()
             )
             ON CONFLICT (vn) DO UPDATE SET
                 hn = EXCLUDED.hn,
@@ -102,6 +103,7 @@ async def sync_queues_to_postgres(rows):
                 qnumber = EXCLUDED.qnumber,
                 category_name = EXCLUDED.category_name,
                 room_code = EXCLUDED.room_code,
+                room_name = EXCLUDED.room_name,
                 queue_date = EXCLUDED.queue_date,
                 queue_time = EXCLUDED.queue_time,
                 status_id = EXCLUDED.status_id,
@@ -118,6 +120,7 @@ async def sync_queues_to_postgres(rows):
                 str(r["qnumber"]) if r.get("qnumber") is not None else None,
                 r.get("category_name"),
                 r.get("room_code"),
+                r.get("room_name"),
                 r.get("date"),
                 r.get("time"),
                 r.get("status_id")
@@ -129,15 +132,15 @@ async def sync_queues_to_postgres(rows):
 
 async def get_pending_queues_from_postgres():
     """
-    ดึงรายการคิวที่ status_id = 1 จาก Local Postgres
-    ที่ยังไม่เคยส่ง MOPH หรือเคยส่งล้มเหลวแต่ยัง Retry ได้
+    ดึงรายการคิวใหม่ที่ยังไม่เคยส่งแจ้งเตือนแรกรับ (queue_created)
+    หรือเคยส่งล้มเหลวแต่ยัง Retry ได้
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT
                 s.vn, s.hn, s.cid, s.pname, s.fname, s.lname,
-                s.qnumber, s.category_name, s.room_code,
+                s.qnumber, s.category_name, s.room_code, s.room_name,
                 s.queue_date AS date, s.queue_time AS time, s.status_id,
                 COALESCE(l.status, 'PENDING') AS notif_status,
                 COALESCE(l.attempt_count, 0) AS attempt_count,
@@ -154,6 +157,49 @@ async def get_pending_queues_from_postgres():
               )
             ORDER BY s.queue_time ASC, s.vn ASC;
         """)
+        return [dict(r) for r in rows]
+
+
+async def get_almost_turn_queues_from_postgres(threshold: int = 2):
+    """
+    ดึงรายการคิวที่ใกล้ถึงคิว (queue_waiting <= threshold)
+    ที่ยังไม่เคยส่งแจ้งเตือนประเภท almost_turn หรือเคยส่งล้มเหลวแต่ยัง Retry ได้
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            WITH queue_positions AS (
+                SELECT
+                    s.vn, s.hn, s.cid, s.pname, s.fname, s.lname,
+                    s.qnumber, s.category_name, s.room_code, s.room_name,
+                    s.queue_date AS date, s.queue_time AS time, s.status_id,
+                    (
+                        COUNT(*) OVER (
+                            PARTITION BY s.queue_date, COALESCE(s.room_code, s.room_name)
+                            ORDER BY s.queue_time ASC, s.vn ASC
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                        )
+                    ) AS queue_waiting
+                FROM opd_queue_sync s
+                WHERE s.queue_date = CURRENT_DATE
+                  AND s.status_id = 1
+                  AND s.qnumber IS NOT NULL
+            )
+            SELECT
+                q.*,
+                COALESCE(l.status, 'PENDING') AS notif_status,
+                COALESCE(l.attempt_count, 0) AS attempt_count,
+                COALESCE(l.max_retries, 3) AS max_retries
+            FROM queue_positions q
+            LEFT JOIN notification_log l
+                   ON q.vn = l.vn AND l.notification_type = 'almost_turn'
+            WHERE q.queue_waiting <= $1
+              AND (
+                  l.vn IS NULL
+                  OR (l.status = 'FAILED' AND l.attempt_count < l.max_retries AND l.is_permanent_error = FALSE)
+              )
+            ORDER BY q.queue_waiting ASC, q.time ASC;
+        """, threshold)
         return [dict(r) for r in rows]
 
 
@@ -239,6 +285,8 @@ async def get_notification_stats():
         row = await conn.fetchrow("""
             SELECT
                 COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE) AS total_today,
+                COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE AND notification_type = 'queue_created') AS created_count,
+                COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE AND notification_type = 'almost_turn') AS almost_turn_count,
                 COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE AND status = 'SENT') AS sent_count,
                 COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE AND status = 'PROCESSING') AS processing_count,
                 COUNT(*) FILTER (WHERE queue_date = CURRENT_DATE AND status = 'FAILED') AS failed_count,

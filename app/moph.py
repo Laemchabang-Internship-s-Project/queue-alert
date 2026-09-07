@@ -18,7 +18,7 @@ def build_payload(row):
 
     queue_no = str(row["qnumber"])
     category = row.get("category_name") or ""
-    room = row.get("room_code") or ""
+    room = row.get("room_name") or row.get("room_code") or ""
     service = f"{category} ห้อง {room}".strip()
 
     return {
@@ -74,7 +74,7 @@ def build_queue_with_url_payload(row, url, header="แจ้งเตือน�
 
     queue_no = str(row["qnumber"])
     category = row.get("category_name") or ""
-    room = row.get("room_code") or ""
+    room = row.get("room_name") or row.get("room_code") or ""
     service = f"{category} ห้อง {room}".strip()
 
     return {
@@ -107,7 +107,7 @@ def build_almost_turn_payload(row, queue_waiting, url, header="ใกล้ถ�
 
     queue_no = str(row["qnumber"])
     category = row.get("category_name") or ""
-    room = row.get("room_code") or ""
+    room = row.get("room_name") or row.get("room_code") or ""
     service = f"{category} ห้อง {room}".strip()
 
     return {
@@ -126,6 +126,7 @@ def build_almost_turn_payload(row, queue_waiting, url, header="ใกล้ถ�
         "message_text": title,
         "message_type": "HPT"
     }
+
 
 async def send_to_moph(payload):
     """

@@ -38,10 +38,12 @@ class Settings(BaseSettings):
     moph_access_token: str = "YOUR_ACCESS_TOKEN"
 
     # =========================
-    # Worker
+    # Worker & Notifications
     # =========================
     poll_interval_seconds: int = 5
     request_timeout_seconds: int = 15
+    almost_turn_threshold: int = 2  # แจ้งเตือนเมื่อเหลืออีก <= 2 คิว
+    queue_tracking_url: str = ""   # URL ติดตามสถานะคิว (ถ้ามี)
 
     model_config = SettingsConfigDict(
         env_file=".env",

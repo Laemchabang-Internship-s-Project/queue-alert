@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS opd_queue_sync (
     qnumber VARCHAR(50),
     category_name VARCHAR(100),
     room_code VARCHAR(50),
+    room_name VARCHAR(150),
     queue_date DATE,
     queue_time TIME,
     status_id INTEGER,
