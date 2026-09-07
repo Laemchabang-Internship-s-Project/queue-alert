@@ -1,7 +1,48 @@
+from datetime import date, time, timedelta, datetime
 import asyncpg
 from app.config import settings
 
 _pool = None
+
+
+def parse_date_field(val):
+    if val is None:
+        return None
+    if isinstance(val, date):
+        return val
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, str):
+        try:
+            return datetime.strptime(val, "%Y-%m-%d").date()
+        except Exception:
+            pass
+    return None
+
+
+def parse_time_field(val):
+    if val is None:
+        return None
+    if isinstance(val, time):
+        return val
+    if isinstance(val, datetime):
+        return val.time()
+    if isinstance(val, timedelta):
+        total_seconds = int(val.total_seconds())
+        hours = (total_seconds // 3600) % 24
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        return time(hours, minutes, seconds)
+    if isinstance(val, str):
+        try:
+            parts = [int(p) for p in val.split(":")]
+            if len(parts) == 3:
+                return time(parts[0], parts[1], parts[2])
+            elif len(parts) == 2:
+                return time(parts[0], parts[1], 0)
+        except Exception:
+            pass
+    return None
 
 
 async def get_pool():
@@ -121,8 +162,8 @@ async def sync_queues_to_postgres(rows):
                 r.get("category_name"),
                 r.get("room_code"),
                 r.get("room_name"),
-                r.get("date"),
-                r.get("time"),
+                parse_date_field(r.get("date")),
+                parse_time_field(r.get("time")),
                 r.get("status_id")
             )
             for r in rows
