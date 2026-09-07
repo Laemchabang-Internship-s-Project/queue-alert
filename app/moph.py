@@ -16,7 +16,38 @@ def build_queue_display(row):
     return qnumber
 
 
+def build_welcome_payload(
+    row,
+    header="ยินดีต้อนรับ",
+    text="สวัสดีครับ ยินดีต้อนรับสู่บริการสุขภาพ เราใส่ใจในสุขภาพและความสบายใจของคุณทุกขั้นตอน หากมีข้อสงสัยหรือสิ่งใดที่เราสามารถช่วยเหลือได้ กรุณาแจ้งเจ้าหน้าที่ได้เลยนะครับ",
+    title="ยินดีต้อนรับ",
+):
+    """
+    API 1: ยินดีต้อนรับ (ตาม Spec MOPH V3.1)
+    """
+    name = " ".join(
+        str(x).strip()
+        for x in [row.get("pname"), row.get("fname"), row.get("lname")]
+        if x
+    )
+
+    return {
+        "cid": str(row["cid"]) if row.get("cid") else "",
+        "name": name,
+        "template": "ยินดีต้อนรับ",
+        "header": header,
+        "text": text,
+        "message_title": title,
+        "message_html": f"<div><strong>{text}</strong></div>",
+        "message_text": title,
+        "message_type": "HPT",
+    }
+
+
 def build_payload(row):
+    """
+    API 2: แจ้งเตือนคิว (ตาม Spec MOPH V3.1)
+    """
     name = " ".join(
         str(x).strip()
         for x in [row.get("pname"), row.get("fname"), row.get("lname")]
@@ -44,31 +75,12 @@ def build_payload(row):
     }
 
 
-def build_welcome_payload(
-    row, header="ยินดีต้อนรับ", text="ยินดีต้อนรับสู่โรงพยาบาล", title="ยินดีต้อนรับ"
-):
-    name = " ".join(
-        str(x).strip()
-        for x in [row.get("pname"), row.get("fname"), row.get("lname")]
-        if x
-    )
-
-    return {
-        "cid": str(row["cid"]) if row.get("cid") else "",
-        "name": name,
-        "template": "ยินดีต้อนรับ",
-        "header": header,
-        "Text": text,
-        "message_title": title,
-        "message_html": f"<div><strong>{text} คุณ {name}</strong></div>",
-        "message_text": title,
-        "message_type": "HPT",
-    }
-
-
 def build_queue_with_url_payload(
     row, url, header="แจ้งเตือนคิว", text="เช็คสถานะคิวของคุณ", title="แจ้งเตือนคิว"
 ):
+    """
+    API 3: แจ้งเตือนคิว แบบมี url (ตาม Spec MOPH V3.1)
+    """
     name = " ".join(
         str(x).strip()
         for x in [row.get("pname"), row.get("fname"), row.get("lname")]
@@ -91,7 +103,7 @@ def build_queue_with_url_payload(
         "url": url,
         "text": text,
         "message_title": title,
-        "message_html": f"<div><strong>คิวที่ {queue_no} บริการ {service}</strong><br><a href='{url}'>คลิกเพื่อตรวจสอบคิว</a></div>",
+        "message_html": f"<div><strong>คิวที่ {queue_no} บริการ {service} ตรวจสอบคิวที่ {url}</strong></div>",
         "message_text": title,
         "message_type": "HPT",
     }
@@ -100,11 +112,14 @@ def build_queue_with_url_payload(
 def build_almost_turn_payload(
     row,
     queue_waiting,
-    url,
+    url="",
     header="ใกล้ถึงคิวของคุณแล้ว",
     text="ใกล้ถึงคิวของคุณแล้ว",
     title="ใกล้ถึงคิวของคุณแล้ว",
 ):
+    """
+    API 4: ใกล้ถึงคิวของคุณแล้ว (ตาม Spec MOPH V3.1)
+    """
     name = " ".join(
         str(x).strip()
         for x in [row.get("pname"), row.get("fname"), row.get("lname")]
@@ -125,79 +140,12 @@ def build_almost_turn_payload(
         "queue_waiting": str(queue_waiting),
         "hn_no": str(row["hn"]),
         "service": service,
-        "url": url,
-        "text": text,
         "message_title": title,
-        "message_html": f"<div><strong>คิวที่ {queue_no} บริการ {service}</strong><br>รออีก {queue_waiting} คิว<br><a href='{url}'>คลิกเพื่อตรวจสอบคิว</a></div>",
+        "message_html": f"<div><strong>รออีก {queue_waiting} คิว คิวที่ {queue_no} บริการ {service}</strong></div>",
         "message_text": title,
         "message_type": "HPT",
     }
 
-def build_queue_changed_payload(row, queue_waiting, header="คิวของท่านมีการเปลี่ยนแปลง", text="คิวของท่านมีการเปลี่ยนแปลง", title="คิวของท่านมีการเปลี่ยนแปลง"):
-    name = " ".join(
-        str(x).strip()
-        for x in [
-            row.get("pname"),
-            row.get("fname"),
-            row.get("lname")
-        ]
-        if x
-    )
-
-    queue_no = build_queue_display(row)
-    category = row.get("category_name") or ""
-    room = row.get("room_name") or row.get("room_code") or ""
-    service = f"{category} ห้อง {room}".strip()
-
-    return {
-        "cid": str(row["cid"]) if row.get("cid") else "",
-        "name": name,
-        "template": "คิวของท่านมีการเปลี่ยนแปลง",
-        "header": header,
-        "queue_no": queue_no,
-        "queue_waiting": str(queue_waiting),
-        "hn_no": str(row["hn"]),
-        "service": service,
-        "url": "",
-        "text": text,
-        "message_title": title,
-        "message_html": f"<div><strong>คิวที่ {queue_no} บริการ {service}</strong><br>รออีก {queue_waiting} คิว</div>",
-        "message_text": title,
-        "message_type": "HPT"
-    }
-
-def build_queue_changed_with_url_payload(row, queue_waiting, url, header="คิวของท่านมีการเปลี่ยนแปลง", text="คิวของท่านมีการเปลี่ยนแปลง", title="คิวของท่านมีการเปลี่ยนแปลง"):
-    name = " ".join(
-        str(x).strip()
-        for x in [
-            row.get("pname"),
-            row.get("fname"),
-            row.get("lname")
-        ]
-        if x
-    )
-
-    queue_no = build_queue_display(row)
-    category = row.get("category_name") or ""
-    room = row.get("room_name") or row.get("room_code") or ""
-    service = f"{category} ห้อง {room}".strip()
-
-    return {
-        "cid": str(row["cid"]) if row.get("cid") else "",
-        "name": name,
-        "template": "คิวของท่านมีการเปลี่ยนแปลง",
-        "header": header,
-        "queue_no": queue_no,
-        "queue_waiting": str(queue_waiting),
-        "hn_no": str(row["hn"]),
-        "service": service,
-        "url": url,
-        "text": text,
-        "message_title": title,
-        "message_html": f"<div><strong>คิวที่ {queue_no} บริการ {service}</strong><br>รออีก {queue_waiting} คิว<br><a href='{url}'>คลิกเพื่อตรวจสอบคิว</a></div>",
-        "message_text": title,
-        "message_type": "HPT"
-    }
 
 def build_queue_changed_payload(
     row,
@@ -206,6 +154,9 @@ def build_queue_changed_payload(
     text="คิวของท่านมีการเปลี่ยนแปลง",
     title="คิวของท่านมีการเปลี่ยนแปลง",
 ):
+    """
+    API 5: คิวของท่านมีการเปลี่ยนแปลง (ตาม Spec MOPH V3.1)
+    """
     name = " ".join(
         str(x).strip()
         for x in [row.get("pname"), row.get("fname"), row.get("lname")]
@@ -229,7 +180,7 @@ def build_queue_changed_payload(
         "url": "",
         "text": text,
         "message_title": title,
-        "message_html": f"<div><strong>คิวที่ {queue_no} บริการ {service}</strong><br>รออีก {queue_waiting} คิว</div>",
+        "message_html": f"<div><strong>คิวของท่านมีการเปลี่ยนแปลง คิวที่ {queue_no} บริการ {service}</strong></div>",
         "message_text": title,
         "message_type": "HPT",
     }
@@ -243,6 +194,9 @@ def build_queue_changed_with_url_payload(
     text="คิวของท่านมีการเปลี่ยนแปลง",
     title="คิวของท่านมีการเปลี่ยนแปลง",
 ):
+    """
+    API 6: คิวของท่านมีการเปลี่ยนแปลง แบบมี url (ตาม Spec MOPH V3.1)
+    """
     name = " ".join(
         str(x).strip()
         for x in [row.get("pname"), row.get("fname"), row.get("lname")]
@@ -266,7 +220,7 @@ def build_queue_changed_with_url_payload(
         "url": url,
         "text": text,
         "message_title": title,
-        "message_html": f"<div><strong>คิวที่ {queue_no} บริการ {service}</strong><br>รออีก {queue_waiting} คิว<br><a href='{url}'>คลิกเพื่อตรวจสอบคิว</a></div>",
+        "message_html": f"<div><strong>คิวของท่านมีการเปลี่ยนแปลง คิวที่ {queue_no} บริการ {service} ตรวจสอบคิวล่าสุดที่ {url}</strong></div>",
         "message_text": title,
         "message_type": "HPT",
     }
@@ -312,16 +266,13 @@ async def send_to_moph(payload):
                 res_json = {}
 
             # เงื่อนไขการตัดสิน Success / Permanent Error:
-            # MOPH API บางครั้งส่ง HTTP 200 แต่ใน Body คืน message_code = 401 หรือ credential incorrect
             if response.is_success:
-                # ถ้า HTTP 200/2xx และ message_code บ่งบอกว่าสำเร็จ (200, 0, SUCCESS)
                 if (
                     moph_code in ["200", "0", "SUCCESS", ""]
                     and res_json.get("message_code") != 401
                 ):
                     is_success = True
                 else:
-                    # HTTP 200 แต่ MOPH Body บอกว่า Error (เช่น 401 Unauthorized / Invalid Client Key)
                     is_success = False
                     if (
                         moph_code in ["401", "403", "400"]
@@ -329,10 +280,8 @@ async def send_to_moph(payload):
                     ):
                         is_permanent_error = True
             else:
-                # HTTP Status 4xx (Client Error เช่น Auth พลาด, Bad Request) = Permanent Error (ไม่ต้อง retry)
                 if 400 <= http_status < 500:
                     is_permanent_error = True
-                # HTTP Status 5xx (Server Error/Gateway Timeout) = Transient Error (ทำ retry ได้)
 
             return (
                 is_success,
@@ -343,7 +292,6 @@ async def send_to_moph(payload):
             )
 
     except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as exc:
-        # Network errors = Transient errors (สามารถ Retry ได้)
         return False, False, None, "NETWORK_ERROR", str(exc)
     except Exception as exc:
         logger.exception("Unexpected error sending to MOPH")
